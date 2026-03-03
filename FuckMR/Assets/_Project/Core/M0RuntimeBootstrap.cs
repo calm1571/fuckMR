@@ -1,5 +1,8 @@
 using System.Collections;
+using Project.Gameplay.Combat;
+using Project.Gameplay.Input;
 using UnityEngine;
+using UnityEngine.XR.Interaction.Toolkit;
 using Unity.XR.PXR;
 
 namespace Project.Core
@@ -12,6 +15,10 @@ namespace Project.Core
         private static M0RuntimeBootstrap _instance;
 
         private AppStateMachine _stateMachine;
+        private IPlayerInputSource _inputSource;
+        private M1InputDebugProbe _inputDebugProbe;
+        private M1ProjectileShooter _projectileShooter;
+        private M1AlwaysVisibleControllerLaser _alwaysVisibleLaser;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureBootstrapExists()
@@ -62,16 +69,45 @@ namespace Project.Core
             EnsureOfficialPassthrough(camera);
             StartCoroutine(EnableOfficialPassthroughWithRetry());
 
-            var menuView = new MainMenuView(camera.transform, OnStartClicked, OnExitClicked, menuDistance, menuVerticalOffset);
+            var menuView = new MainMenuView(camera.transform, HandleStartClicked, OnExitClicked, menuDistance, menuVerticalOffset);
 
             _stateMachine = new AppStateMachine();
             _stateMachine.Register(new BootState(() => _stateMachine.ChangeState(AppStateId.MainMenu)));
             _stateMachine.Register(new MainMenuState(menuView));
+            _stateMachine.Register(new PlayingState(OnEnterPlaying, OnExitPlaying));
             _stateMachine.ChangeState(AppStateId.Boot);
+
+            var rightActionController = FindRightActionController();
+            _inputSource = new PicoControllerInputSource(rightActionController, useRightController: true);
+            _inputDebugProbe = new M1InputDebugProbe(_inputSource);
+            _projectileShooter = gameObject.GetComponent<M1ProjectileShooter>();
+            if (_projectileShooter == null)
+            {
+                _projectileShooter = gameObject.AddComponent<M1ProjectileShooter>();
+            }
+
+            if (!_projectileShooter.HasShootOriginAssigned && rightActionController != null)
+            {
+                var rayInteractor = rightActionController.GetComponentInChildren<XRRayInteractor>(true);
+                _projectileShooter.SetShootOrigin(rayInteractor != null ? rayInteractor.transform : rightActionController.transform);
+            }
+
+            _projectileShooter.Bind(_inputSource);
+            _projectileShooter.SetShootingEnabled(false);
+            _alwaysVisibleLaser = gameObject.GetComponent<M1AlwaysVisibleControllerLaser>();
+            if (_alwaysVisibleLaser == null)
+            {
+                _alwaysVisibleLaser = gameObject.AddComponent<M1AlwaysVisibleControllerLaser>();
+            }
+
+            _alwaysVisibleLaser.enabled = false;
+            RefreshRayVisuals();
         }
 
         private void Update()
         {
+            _inputSource?.Tick();
+            _inputDebugProbe?.Tick();
             _stateMachine?.Tick();
         }
 
@@ -166,9 +202,29 @@ namespace Project.Core
             target.AddComponent<PXR_Manager>();
         }
 
-        private static void OnStartClicked()
+        private void HandleStartClicked()
         {
-            Debug.Log("M0 MainMenu: Start clicked.");
+            _stateMachine?.ChangeState(AppStateId.Playing);
+        }
+
+        private void OnEnterPlaying()
+        {
+            _projectileShooter?.SetShootingEnabled(true);
+            if (_alwaysVisibleLaser != null)
+            {
+                _alwaysVisibleLaser.enabled = true;
+            }
+            RefreshRayVisuals();
+            Debug.Log("M1: Enter Playing");
+        }
+
+        private void OnExitPlaying()
+        {
+            _projectileShooter?.SetShootingEnabled(false);
+            if (_alwaysVisibleLaser != null)
+            {
+                _alwaysVisibleLaser.enabled = false;
+            }
         }
 
         private static void OnExitClicked()
@@ -178,6 +234,80 @@ namespace Project.Core
 #else
             Application.Quit();
 #endif
+        }
+
+        private void RefreshRayVisuals()
+        {
+            var rays = FindObjectsOfType<XRRayInteractor>(true);
+            var gradient = BuildCyanGradient();
+
+            for (var i = 0; i < rays.Length; i++)
+            {
+                var ray = rays[i];
+                if (ray == null || !ray.gameObject.activeInHierarchy)
+                {
+                    continue;
+                }
+
+                var lineVisual = ray.GetComponent<XRInteractorLineVisual>();
+                if (lineVisual != null)
+                {
+                    lineVisual.enabled = true;
+                    lineVisual.overrideInteractorLineLength = true;
+                    lineVisual.lineLength = 8f;
+                    lineVisual.autoAdjustLineLength = false;
+                    lineVisual.stopLineAtFirstRaycastHit = false;
+                    lineVisual.lineWidth = 0.006f;
+                    lineVisual.validColorGradient = gradient;
+                    lineVisual.invalidColorGradient = gradient;
+                    lineVisual.blockedColorGradient = gradient;
+                }
+
+                var lineRenderer = ray.GetComponent<LineRenderer>();
+                if (lineRenderer != null)
+                {
+                    lineRenderer.enabled = true;
+                    lineRenderer.startWidth = 0.006f;
+                    lineRenderer.endWidth = 0.004f;
+                }
+            }
+        }
+
+        private static ActionBasedController FindRightActionController()
+        {
+            var controllers = FindObjectsOfType<ActionBasedController>(true);
+            for (var i = 0; i < controllers.Length; i++)
+            {
+                var candidate = controllers[i];
+                if (candidate == null)
+                {
+                    continue;
+                }
+
+                if (candidate.gameObject.name.Contains("Right"))
+                {
+                    return candidate;
+                }
+            }
+
+            return controllers.Length > 0 ? controllers[0] : null;
+        }
+
+        private static Gradient BuildCyanGradient()
+        {
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(new Color(0.18f, 0.95f, 1f, 1f), 0f),
+                    new GradientColorKey(new Color(0.12f, 0.75f, 1f, 1f), 1f)
+                },
+                new[]
+                {
+                    new GradientAlphaKey(1f, 0f),
+                    new GradientAlphaKey(1f, 1f)
+                });
+            return gradient;
         }
     }
 }
