@@ -1,0 +1,85 @@
+########################################
+# Unity Generated Folders
+########################################
+
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+
+########################################
+# Unity Cache
+########################################
+
+sysinfo.txt
+*.stacktrace
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+########################################
+# IDE / Editor
+########################################
+
+.vscode/
+.idea/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+
+########################################
+# Android / Gradle
+########################################
+
+.gradle/
+**/build/
+**/gradleOut/
+**/gradleCache/
+
+########################################
+# OS Files
+########################################
+
+.DS_Store
+Thumbs.db
+
+########################################
+# Crash Reports
+########################################
+
+crashlytics-build.properties
+
+########################################
+# Addressables (optional cache)
+########################################
+
+ServerData/
+
+########################################
+# Do NOT ignore these (important!)
+########################################
+
+!Assets/**/*.meta
+!Packages/manifest.json
+!Packages/packages-lock.json
+!ProjectSettings/**
+
+########################################
+# Optional: Git LFS suggestion
+########################################
+# If using large media:
+# *.mp4 filter=lfs diff=lfs merge=lfs -text
+# *.psd filter=lfs diff=lfs merge=lfs -text
