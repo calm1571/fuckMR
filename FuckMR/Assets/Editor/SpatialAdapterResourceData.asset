@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 686286754, guid: a2005d26a7dfb4db3952cf9ed3794675, type: 3}
+  m_Name: SpatialAdapterResourceData
+  m_EditorClassIdentifier: 
+  PrefabLookUps: []
+  TextureLookUps: []
+  MaterialLookUps:
+  - resource: {fileID: 2100000, guid: 950042044eb8b45cfb957653439b0be7, type: 2}
+    path: SpatialAdapterExport\Packages\com.unity.xr.arfoundation\Assets\Materials\SimulationLitGray.mat.glb
+  - resource: {fileID: 2100000, guid: 7f1d579c79ac0442e8d4a7f213a675d0, type: 2}
+    path: SpatialAdapterExport\Packages\com.unity.xr.arfoundation\Assets\Materials\SimulationDefaultTrackedImage.mat.glb
+  - resource: {fileID: 2100000, guid: 1d1fab4015cac46c08cbc1fe0a1eb0c2, type: 2}
+    path: SpatialAdapterExport\Packages\com.unity.xr.arfoundation\Assets\Materials\UnlitBlack.mat.glb
+  ShaderGraphLookUps: []
+  DefaultSpatialCameraConfiguration: {fileID: 11400000, guid: 3f0f12161122646a8bbc81d469b0eaeb,
+    type: 2}
