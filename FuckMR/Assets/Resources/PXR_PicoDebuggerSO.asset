@@ -9,15 +9,11 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2e0a90bb5cd1f4084a2c39abb6b1dee2, type: 3}
+  m_Script: {fileID: 11500000, guid: d84923cab4d03452a8a3b80e3386b9b4, type: 3}
   m_Name: PXR_PicoDebuggerSO
   m_EditorClassIdentifier: 
-  version: 0.3.1
   isOpen: 0
+  debuggerLauncherButton: 0
   startPosition: 0
-  inputActionAsset: {fileID: 0}
-  maxInfoCount: 500
-  worldPositionStep: 1
-  localPositionStep: 1
-  worldRotationStep: 1
-  localRotationStep: 1
+  maxInfoCount: 0
+  rulerClearButton: 0

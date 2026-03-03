@@ -9,13 +9,7 @@ EditorBuildSettings:
     path: Assets/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
   m_configObjects:
-    ByteDance.PICO.XR.Settings: {fileID: 11400000, guid: fbcbbed67abe70d49a5a26df7b6c2a52,
+    Unity.XR.PXR.Settings: {fileID: 11400000, guid: 5ca7fe9b4203d7d4dbb6190d6c52f796,
       type: 2}
-    UnityEditor.XR.ARCore.ARCoreSettings: {fileID: 11400000, guid: 9c3a62488cdd06b4ea2e58ff3c938af7,
-      type: 2}
-    com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: 7c5e063be8d0a164a8241f53cc0a13c0,
-      type: 2}
-    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: ac26074eba0527149aaa66cd76336edb,
-      type: 2}
-    xr.sdk.mock-hmd.settings: {fileID: 11400000, guid: 82202fe8b322ea04d840381c5b17b7d9,
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: a586e0e86269fc84489e9d692a7b1e8d,
       type: 2}

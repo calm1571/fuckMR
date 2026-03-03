@@ -1,10 +1,6 @@
 {
   "dependencies": {
-    "com.bytedance.pico.spatialadapter": "file:D:\\Unity\\PICO-Unity-SDK-0.10.0-Preview\\SpatialAdapter\\SpatialAdapter-Runtime-Package",
-    "com.bytedance.pico.xr": "file:D:/Unity/PICO-Unity-SDK-0.10.0-Preview/XR",
-    "com.plattar.unitygltf": "file:D:\\Unity\\PICO-Unity-SDK-0.10.0-Preview\\SpatialAdapter\\unity-gltf-exporter\\package\\com.plattar.unitygltf",
     "com.unity.collab-proxy": "2.11.4",
-    "com.unity.formats.usd": "file:D:\\Unity\\PICO-Unity-SDK-0.10.0-Preview\\SpatialAdapter\\usd-unity-sdk\\package\\com.unity.formats.usd",
     "com.unity.ide.rider": "3.0.36",
     "com.unity.ide.visualstudio": "2.0.22",
     "com.unity.ide.vscode": "1.2.5",
@@ -14,8 +10,7 @@
     "com.unity.timeline": "1.7.7",
     "com.unity.ugui": "1.0.0",
     "com.unity.visualscripting": "1.9.4",
-    "com.unity.xr.arcore": "5.2.2",
-    "com.unity.xr.mock-hmd": "1.5.0-exp.2",
+    "com.unity.xr.picoxr": "https://github.com/Pico-Developer/PICO-Unity-Integration-SDK.git#release_3.3.0",
     "com.unity.modules.ai": "1.0.0",
     "com.unity.modules.androidjni": "1.0.0",
     "com.unity.modules.animation": "1.0.0",
