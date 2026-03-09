@@ -1,7 +1,9 @@
+using System;
 using System.Collections;
 using Project.Gameplay.Combat;
 using Project.Gameplay.Input;
 using Project.MRWorld;
+using Project.Networking;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 using Unity.XR.PXR;
@@ -15,6 +17,9 @@ namespace Project.Core
         [SerializeField] private float calibrationMoveSpeed = 1.2f;
         [SerializeField] private float calibrationRotateSpeed = 55f;
         [SerializeField] private float calibrationHeightSpeed = 0.45f;
+        [SerializeField] private int networkPort = 27777;
+        [SerializeField] private string hostIpForClient = "192.168.50.2";
+        [SerializeField] private float poseSendRate = 30f;
 
         private static M0RuntimeBootstrap _instance;
 
@@ -26,6 +31,14 @@ namespace Project.Core
         private CalibrationView _calibrationView;
         private WorldRootController _worldRootController;
         private GameObject _worldRootMarker;
+        private RoleSelectView _roleSelectView;
+        private LobbyView _lobbyHostView;
+        private LobbyView _lobbyClientView;
+        private M3NetworkCoordinator _networkCoordinator;
+        private M3RemotePlayerProxy _remoteProxy;
+        private NetworkRole _selectedRole = NetworkRole.None;
+        private ActionBasedController _leftActionController;
+        private ActionBasedController _rightActionController;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureBootstrapExists()
@@ -77,6 +90,9 @@ namespace Project.Core
             StartCoroutine(EnableOfficialPassthroughWithRetry());
 
             var menuView = new MainMenuView(camera.transform, HandleStartClicked, OnExitClicked, menuDistance, menuVerticalOffset);
+            _roleSelectView = new RoleSelectView(camera.transform, OnHostSelected, OnClientSelected, HandleRoleSelectBackClicked, menuDistance, menuVerticalOffset);
+            _lobbyHostView = new LobbyView(camera.transform, "Lobby Host", "Start Match", HandleHostStartMatchClicked, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
+            _lobbyClientView = new LobbyView(camera.transform, "Lobby Client", "Waiting Host", null, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
             _calibrationView = new CalibrationView(camera.transform, HandleCalibrationConfirmClicked, HandleCalibrationBackClicked, menuDistance, menuVerticalOffset);
 
             var worldRootTransform = EnsureWorldRootExists();
@@ -95,12 +111,17 @@ namespace Project.Core
             _stateMachine = new AppStateMachine();
             _stateMachine.Register(new BootState(() => _stateMachine.ChangeState(AppStateId.MainMenu)));
             _stateMachine.Register(new MainMenuState(menuView));
+            _stateMachine.Register(new RoleSelectState(_roleSelectView));
+            _stateMachine.Register(new LobbyHostState(_lobbyHostView, OnTickLobbyHost));
+            _stateMachine.Register(new LobbyClientState(_lobbyClientView, OnTickLobbyClient));
             _stateMachine.Register(new CalibrationState(OnEnterCalibration, OnExitCalibration, OnTickCalibration));
             _stateMachine.Register(new PlayingState(OnEnterPlaying, OnExitPlaying));
             _stateMachine.ChangeState(AppStateId.Boot);
 
-            var rightActionController = FindRightActionController();
-            _inputSource = new PicoControllerInputSource(rightActionController, useRightController: true);
+            _rightActionController = FindRightActionController();
+            _leftActionController = FindLeftActionController();
+
+            _inputSource = new PicoControllerInputSource(_rightActionController, useRightController: true);
             _inputDebugProbe = new M1InputDebugProbe(_inputSource);
             _projectileShooter = gameObject.GetComponent<M1ProjectileShooter>();
             if (_projectileShooter == null)
@@ -108,10 +129,10 @@ namespace Project.Core
                 _projectileShooter = gameObject.AddComponent<M1ProjectileShooter>();
             }
 
-            if (!_projectileShooter.HasShootOriginAssigned && rightActionController != null)
+            if (!_projectileShooter.HasShootOriginAssigned && _rightActionController != null)
             {
-                var rayInteractor = rightActionController.GetComponentInChildren<XRRayInteractor>(true);
-                _projectileShooter.SetShootOrigin(rayInteractor != null ? rayInteractor.transform : rightActionController.transform);
+                var rayInteractor = _rightActionController.GetComponentInChildren<XRRayInteractor>(true);
+                _projectileShooter.SetShootOrigin(rayInteractor != null ? rayInteractor.transform : _rightActionController.transform);
             }
 
             _projectileShooter.Bind(_inputSource);
@@ -124,12 +145,31 @@ namespace Project.Core
 
             _alwaysVisibleLaser.enabled = false;
             RefreshRayVisuals();
+
+            _networkCoordinator = new M3NetworkCoordinator(networkPort, hostIpForClient, poseSendRate);
+            _networkCoordinator.BindLocalRig(
+                camera.transform,
+                _leftActionController != null ? _leftActionController.transform : null,
+                _rightActionController != null ? _rightActionController.transform : null);
+            _networkCoordinator.RemoteCalibrationRequested += OnRemoteCalibrationRequested;
+
+            _remoteProxy = gameObject.GetComponent<M3RemotePlayerProxy>();
+            if (_remoteProxy == null)
+            {
+                _remoteProxy = gameObject.AddComponent<M3RemotePlayerProxy>();
+            }
         }
 
         private void Update()
         {
             _inputSource?.Tick();
             _inputDebugProbe?.Tick();
+            _networkCoordinator?.Tick(Time.unscaledTime);
+            if (_networkCoordinator != null && _networkCoordinator.HasRemotePose && _remoteProxy != null)
+            {
+                _remoteProxy.ApplyPose(_networkCoordinator.LatestRemotePose);
+            }
+
             _stateMachine?.Tick();
         }
 
@@ -226,16 +266,101 @@ namespace Project.Core
 
         private void HandleStartClicked()
         {
+            _stateMachine?.ChangeState(AppStateId.RoleSelect);
+        }
+
+        private void HandleRoleSelectBackClicked()
+        {
+            _stateMachine?.ChangeState(AppStateId.MainMenu);
+        }
+
+        private void OnHostSelected()
+        {
+            _selectedRole = NetworkRole.Host;
+            _networkCoordinator?.StartHost();
+            _stateMachine?.ChangeState(AppStateId.LobbyHost);
+        }
+
+        private void OnClientSelected()
+        {
+            _selectedRole = NetworkRole.Client;
+            _networkCoordinator?.StartClient(hostIpForClient);
+            _stateMachine?.ChangeState(AppStateId.LobbyClient);
+        }
+
+        private void HandleLobbyBackClicked()
+        {
+            _networkCoordinator?.Stop();
+            _selectedRole = NetworkRole.None;
+            _stateMachine?.ChangeState(AppStateId.RoleSelect);
+        }
+
+        private void OnTickLobbyHost()
+        {
+            if (_networkCoordinator == null)
+            {
+                return;
+            }
+
+            _lobbyHostView.SetStatus(_networkCoordinator.BuildLobbyStatus());
+            _lobbyHostView.SetPrimaryButton(_networkCoordinator.IsConnected ? "Start Match" : "Waiting Client...", _networkCoordinator.IsConnected);
+        }
+
+        private void OnTickLobbyClient()
+        {
+            if (_networkCoordinator == null)
+            {
+                return;
+            }
+
+            _lobbyClientView.SetStatus(_networkCoordinator.BuildLobbyStatus());
+            _lobbyClientView.SetPrimaryButton("Waiting Host", false);
+        }
+
+        private void HandleHostStartMatchClicked()
+        {
+            if (_selectedRole != NetworkRole.Host || _networkCoordinator == null || !_networkCoordinator.IsConnected)
+            {
+                return;
+            }
+
+            _networkCoordinator.NotifyHostStartCalibration();
             _stateMachine?.ChangeState(AppStateId.Calibration);
+        }
+
+        private void OnRemoteCalibrationRequested()
+        {
+            if (_selectedRole == NetworkRole.Client)
+            {
+                _stateMachine?.ChangeState(AppStateId.Calibration);
+            }
         }
 
         private void HandleCalibrationConfirmClicked()
         {
+            if (_selectedRole == NetworkRole.Host && _networkCoordinator != null && _networkCoordinator.IsConnected)
+            {
+                // Host can re-send calibration start in case client joined slightly late.
+                _networkCoordinator.NotifyHostStartCalibration();
+            }
+
             _stateMachine?.ChangeState(AppStateId.Playing);
         }
 
         private void HandleCalibrationBackClicked()
         {
+            if (_selectedRole == NetworkRole.Host)
+            {
+                _stateMachine?.ChangeState(AppStateId.LobbyHost);
+                return;
+            }
+
+            if (_selectedRole == NetworkRole.Client)
+            {
+                _stateMachine?.ChangeState(AppStateId.LobbyClient);
+                return;
+            }
+
             _stateMachine?.ChangeState(AppStateId.MainMenu);
         }
 
@@ -357,6 +482,26 @@ namespace Project.Core
                 }
 
                 if (candidate.gameObject.name.Contains("Right"))
+                {
+                    return candidate;
+                }
+            }
+
+            return controllers.Length > 0 ? controllers[0] : null;
+        }
+
+        private static ActionBasedController FindLeftActionController()
+        {
+            var controllers = FindObjectsOfType<ActionBasedController>(true);
+            for (var i = 0; i < controllers.Length; i++)
+            {
+                var candidate = controllers[i];
+                if (candidate == null)
+                {
+                    continue;
+                }
+
+                if (candidate.gameObject.name.Contains("Left"))
                 {
                     return candidate;
                 }

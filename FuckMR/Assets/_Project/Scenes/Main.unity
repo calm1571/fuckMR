@@ -2217,6 +2217,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   menuDistance: 2.6
   menuVerticalOffset: -0.05
+  calibrationMoveSpeed: 1.2
+  calibrationRotateSpeed: 55
+  calibrationHeightSpeed: 0.45
+  networkPort: 27777
+  hostIpForClient: 10.69.115.198
+  poseSendRate: 30
 --- !u!4 &1968245071
 Transform:
   m_ObjectHideFlags: 0
@@ -2249,8 +2255,10 @@ MonoBehaviour:
   projectileLifetime: 6
   projectileMaxDistance: 25
   projectileRadius: 0.033
+  addDebugTrail: 1
   muzzleOffset: 0.08
   shootOriginOverride: {fileID: 1137981925}
+  requireExplicitShootOrigin: 1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
