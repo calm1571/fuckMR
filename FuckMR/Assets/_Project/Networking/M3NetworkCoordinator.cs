@@ -18,8 +18,14 @@ namespace Project.Networking
         private bool _remoteCalibrationRequested;
         private bool _remoteWorldRootSyncRequested;
         private bool _remoteShootRequested;
+        private bool _remoteShieldRequested;
+        private bool _remoteHpUpdateRequested;
+        private bool _remoteMatchResultRequested;
         private WorldRootSyncPayload _pendingWorldRootSync;
         private ShootPayload _pendingShoot;
+        private ShieldPayload _pendingShield;
+        private HpUpdatePayload _pendingHpUpdate;
+        private MatchResultPayload _pendingMatchResult;
 
         private Transform _head;
         private Transform _leftHand;
@@ -28,6 +34,9 @@ namespace Project.Networking
         public event Action RemoteCalibrationRequested;
         public event Action<WorldRootSyncPayload> WorldRootSyncReceived;
         public event Action<ShootPayload> RemoteShootReceived;
+        public event Action<ShieldPayload> RemoteShieldReceived;
+        public event Action<HpUpdatePayload> HpUpdateReceived;
+        public event Action<MatchResultPayload> MatchResultReceived;
 
         public NetworkRole Role { get; private set; } = NetworkRole.None;
         public bool IsConnected => _transport.IsConnected;
@@ -60,6 +69,12 @@ namespace Project.Networking
             _pendingWorldRootSync = null;
             _remoteShootRequested = false;
             _pendingShoot = null;
+            _remoteShieldRequested = false;
+            _pendingShield = null;
+            _remoteHpUpdateRequested = false;
+            _pendingHpUpdate = null;
+            _remoteMatchResultRequested = false;
+            _pendingMatchResult = null;
         }
 
         public void StartClient(string hostIp = null)
@@ -72,6 +87,12 @@ namespace Project.Networking
             _pendingWorldRootSync = null;
             _remoteShootRequested = false;
             _pendingShoot = null;
+            _remoteShieldRequested = false;
+            _pendingShield = null;
+            _remoteHpUpdateRequested = false;
+            _pendingHpUpdate = null;
+            _remoteMatchResultRequested = false;
+            _pendingMatchResult = null;
         }
 
         public void Stop()
@@ -84,6 +105,12 @@ namespace Project.Networking
             _pendingWorldRootSync = null;
             _remoteShootRequested = false;
             _pendingShoot = null;
+            _remoteShieldRequested = false;
+            _pendingShield = null;
+            _remoteHpUpdateRequested = false;
+            _pendingHpUpdate = null;
+            _remoteMatchResultRequested = false;
+            _pendingMatchResult = null;
         }
 
         public void Tick(float unscaledTime)
@@ -111,6 +138,33 @@ namespace Project.Networking
                 if (_pendingShoot != null)
                 {
                     RemoteShootReceived?.Invoke(_pendingShoot);
+                }
+            }
+
+            if (_remoteShieldRequested)
+            {
+                _remoteShieldRequested = false;
+                if (_pendingShield != null)
+                {
+                    RemoteShieldReceived?.Invoke(_pendingShield);
+                }
+            }
+
+            if (_remoteHpUpdateRequested)
+            {
+                _remoteHpUpdateRequested = false;
+                if (_pendingHpUpdate != null)
+                {
+                    HpUpdateReceived?.Invoke(_pendingHpUpdate);
+                }
+            }
+
+            if (_remoteMatchResultRequested)
+            {
+                _remoteMatchResultRequested = false;
+                if (_pendingMatchResult != null)
+                {
+                    MatchResultReceived?.Invoke(_pendingMatchResult);
                 }
             }
 
@@ -167,6 +221,50 @@ namespace Project.Networking
                 lifetime = lifetime
             };
             _transport.SendShoot(payload);
+        }
+
+        public void NotifyShield(bool active, float duration)
+        {
+            if (Role == NetworkRole.None || !_transport.IsConnected)
+            {
+                return;
+            }
+
+            var payload = new ShieldPayload
+            {
+                active = active,
+                duration = duration
+            };
+            _transport.SendShield(payload);
+        }
+
+        public void NotifyHostHpUpdate(int hostHp, int clientHp)
+        {
+            if (Role != NetworkRole.Host || !_transport.IsConnected)
+            {
+                return;
+            }
+
+            var payload = new HpUpdatePayload
+            {
+                hostHp = hostHp,
+                clientHp = clientHp
+            };
+            _transport.SendHpUpdate(payload);
+        }
+
+        public void NotifyHostMatchResult(string winnerRole)
+        {
+            if (Role != NetworkRole.Host || !_transport.IsConnected)
+            {
+                return;
+            }
+
+            var payload = new MatchResultPayload
+            {
+                winnerRole = winnerRole
+            };
+            _transport.SendMatchResult(payload);
         }
 
         public string BuildLobbyStatus()
@@ -256,6 +354,39 @@ namespace Project.Networking
                 {
                     _pendingShoot = JsonUtility.FromJson<ShootPayload>(message.payload);
                     _remoteShootRequested = _pendingShoot != null;
+                }
+                catch
+                {
+                }
+            }
+            else if (message.type == LanMessageTypes.Shield && !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingShield = JsonUtility.FromJson<ShieldPayload>(message.payload);
+                    _remoteShieldRequested = _pendingShield != null;
+                }
+                catch
+                {
+                }
+            }
+            else if (message.type == LanMessageTypes.HpUpdate && !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingHpUpdate = JsonUtility.FromJson<HpUpdatePayload>(message.payload);
+                    _remoteHpUpdateRequested = _pendingHpUpdate != null;
+                }
+                catch
+                {
+                }
+            }
+            else if (message.type == LanMessageTypes.MatchResult && !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingMatchResult = JsonUtility.FromJson<MatchResultPayload>(message.payload);
+                    _remoteMatchResultRequested = _pendingMatchResult != null;
                 }
                 catch
                 {

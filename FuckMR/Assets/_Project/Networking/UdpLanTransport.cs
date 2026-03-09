@@ -154,6 +154,57 @@ namespace Project.Networking
             Send(message);
         }
 
+        public void SendShield(ShieldPayload payload)
+        {
+            if (!_connected || payload == null)
+            {
+                return;
+            }
+
+            var message = new LanMessage
+            {
+                type = LanMessageTypes.Shield,
+                playerId = _localPlayerId,
+                payload = JsonUtility.ToJson(payload)
+            };
+
+            Send(message);
+        }
+
+        public void SendHpUpdate(HpUpdatePayload payload)
+        {
+            if (!_connected || payload == null)
+            {
+                return;
+            }
+
+            var message = new LanMessage
+            {
+                type = LanMessageTypes.HpUpdate,
+                playerId = _localPlayerId,
+                payload = JsonUtility.ToJson(payload)
+            };
+
+            Send(message);
+        }
+
+        public void SendMatchResult(MatchResultPayload payload)
+        {
+            if (!_connected || payload == null)
+            {
+                return;
+            }
+
+            var message = new LanMessage
+            {
+                type = LanMessageTypes.MatchResult,
+                playerId = _localPlayerId,
+                payload = JsonUtility.ToJson(payload)
+            };
+
+            Send(message);
+        }
+
         public void Stop()
         {
             _role = NetworkRole.None;

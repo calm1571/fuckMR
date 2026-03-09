@@ -2223,6 +2223,13 @@ MonoBehaviour:
   networkPort: 27777
   hostIpForClient: 10.69.115.198
   poseSendRate: 30
+  worldRootSyncBurstCount: 5
+  worldRootSyncBurstInterval: 0.12
+  combatBalanceConfig: {fileID: 11400000, guid: a58d7edb6021f034d80e03e492c83790,
+    type: 2}
+  hitCheckRadius: 0.25
+  hudDistance: 1.15
+  hudLocalOffset: {x: 0, y: 0.28, z: 0}
 --- !u!4 &1968245071
 Transform:
   m_ObjectHideFlags: 0
@@ -2255,6 +2262,7 @@ MonoBehaviour:
   projectileLifetime: 6
   projectileMaxDistance: 25
   projectileRadius: 0.033
+  shootCooldown: 1
   addDebugTrail: 1
   muzzleOffset: 0.08
   shootOriginOverride: {fileID: 1137981925}

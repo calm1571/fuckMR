@@ -113,12 +113,6 @@ namespace Project.Gameplay.Input
                 primaryValue;
 
 #if ENABLE_INPUT_SYSTEM
-            if (TryReadActionButton(_actionController != null ? _actionController.uiPressAction.action : null, out var uiPress))
-            {
-                // UI Press is often trigger on XRI presets, so do not override primary button state.
-                devicePressed = devicePressed || uiPress;
-            }
-
             if (TryReadInputSystemButton("<XRController>{RightHand}/primaryButton", out var primaryButtonPressed))
             {
                 return primaryButtonPressed || devicePressed;

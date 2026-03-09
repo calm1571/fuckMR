@@ -22,6 +22,7 @@ namespace Project.Gameplay.Combat
         [SerializeField] private float projectileLifetime = 6f;
         [SerializeField] private float projectileMaxDistance = 25f;
         [SerializeField] private float projectileRadius = 0.033f;
+        [SerializeField] private float shootCooldown = 1f;
         [SerializeField] private bool addDebugTrail = true;
 
         [Header("Spawn")]
@@ -34,6 +35,7 @@ namespace Project.Gameplay.Combat
         private Material _runtimeProjectileMaterial;
         private bool _isShootingEnabled;
         private bool _missingOriginLogged;
+        private float _nextAllowedShootTime;
 
         public event Action<ShotInfo> ShotFired;
         public bool HasShootOriginAssigned => shootOriginOverride != null;
@@ -47,6 +49,13 @@ namespace Project.Gameplay.Combat
         public void SetShootingEnabled(bool enabled)
         {
             _isShootingEnabled = enabled;
+        }
+
+        public void SetCombatTuning(float speed, float radius, float cooldown)
+        {
+            projectileSpeed = Mathf.Max(0.1f, speed);
+            projectileRadius = Mathf.Max(0.01f, radius);
+            shootCooldown = Mathf.Max(0.05f, cooldown);
         }
 
         public void Bind(IPlayerInputSource inputSource)
@@ -83,6 +92,11 @@ namespace Project.Gameplay.Combat
                 return;
             }
 
+            if (Time.time < _nextAllowedShootTime)
+            {
+                return;
+            }
+
             if (!TryGetShootPose(out var position, out var rotation))
             {
                 return;
@@ -90,6 +104,7 @@ namespace Project.Gameplay.Combat
 
             var direction = rotation * Vector3.forward;
             var spawnPos = position + direction * muzzleOffset;
+            _nextAllowedShootTime = Time.time + shootCooldown;
             SpawnProjectile(spawnPos, direction, projectileSpeed, projectileMaxDistance, projectileLifetime, true);
         }
 

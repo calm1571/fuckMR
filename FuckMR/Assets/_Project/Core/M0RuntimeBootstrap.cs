@@ -4,6 +4,7 @@ using Project.Gameplay.Combat;
 using Project.Gameplay.Input;
 using Project.MRWorld;
 using Project.Networking;
+using Project.ScriptableObjects;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 using Unity.XR.PXR;
@@ -22,6 +23,10 @@ namespace Project.Core
         [SerializeField] private float poseSendRate = 30f;
         [SerializeField] private int worldRootSyncBurstCount = 5;
         [SerializeField] private float worldRootSyncBurstInterval = 0.12f;
+        [SerializeField] private CombatBalanceConfig combatBalanceConfig;
+        [SerializeField] private float hitCheckRadius = 0.25f;
+        [SerializeField] private float hudDistance = 1.15f;
+        [SerializeField] private Vector3 hudLocalOffset = new Vector3(0f, 0.28f, 0f);
 
         private static M0RuntimeBootstrap _instance;
 
@@ -36,6 +41,8 @@ namespace Project.Core
         private RoleSelectView _roleSelectView;
         private LobbyView _lobbyHostView;
         private LobbyView _lobbyClientView;
+        private LobbyView _resultView;
+        private M5PlayerHudView _playerHudView;
         private M3NetworkCoordinator _networkCoordinator;
         private M3RemotePlayerProxy _remoteProxy;
         private NetworkRole _selectedRole = NetworkRole.None;
@@ -44,6 +51,19 @@ namespace Project.Core
         private Coroutine _worldRootSyncRoutine;
         private ActionBasedController _leftActionController;
         private ActionBasedController _rightActionController;
+        private M5ShieldVisual _localShieldVisual;
+        private M5ShieldVisual _remoteShieldVisual;
+
+        private int _hostHp;
+        private int _clientHp;
+        private float _hostShieldEndTime;
+        private float _clientShieldEndTime;
+        private float _hostShieldCooldownUntil;
+        private float _clientShieldCooldownUntil;
+        private float _hostNextShootAllowedTime;
+        private float _clientNextShootAllowedTime;
+        private float _localShootCooldownUntil;
+        private string _resultText = "Result";
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureBootstrapExists()
@@ -99,6 +119,8 @@ namespace Project.Core
             _lobbyHostView = new LobbyView(camera.transform, "Lobby Host", "Start Match", HandleHostStartMatchClicked, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
             _lobbyClientView = new LobbyView(camera.transform, "Lobby Client", "Waiting Host", null, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
             _calibrationView = new CalibrationView(camera.transform, HandleCalibrationConfirmClicked, HandleCalibrationBackClicked, menuDistance, menuVerticalOffset);
+            _resultView = new LobbyView(camera.transform, "Result", "Back To Menu", HandleResultBackToMenuClicked, HandleResultBackToMenuClicked, menuDistance, menuVerticalOffset);
+            _playerHudView = new M5PlayerHudView(camera.transform, hudDistance, hudLocalOffset);
 
             _worldRootTransform = EnsureWorldRootExists();
             _worldRootController = new WorldRootController(
@@ -121,6 +143,7 @@ namespace Project.Core
             _stateMachine.Register(new LobbyClientState(_lobbyClientView, OnTickLobbyClient));
             _stateMachine.Register(new CalibrationState(OnEnterCalibration, OnExitCalibration, OnTickCalibration));
             _stateMachine.Register(new PlayingState(OnEnterPlaying, OnExitPlaying));
+            _stateMachine.Register(new ResultState(OnEnterResult, OnExitResult, OnTickResult));
             _stateMachine.ChangeState(AppStateId.Boot);
 
             _rightActionController = FindRightActionController();
@@ -143,6 +166,8 @@ namespace Project.Core
             _projectileShooter.Bind(_inputSource);
             _projectileShooter.ShotFired += OnLocalShotFired;
             _projectileShooter.SetShootingEnabled(false);
+            _projectileShooter.SetCombatTuning(GetProjectileSpeed(), GetProjectileRadius(), GetShootCooldown());
+            _inputSource.AButtonDown += OnLocalShieldPressed;
             _alwaysVisibleLaser = gameObject.GetComponent<M1AlwaysVisibleControllerLaser>();
             if (_alwaysVisibleLaser == null)
             {
@@ -151,6 +176,8 @@ namespace Project.Core
 
             _alwaysVisibleLaser.enabled = false;
             RefreshRayVisuals();
+            _hostHp = GetMaxHp();
+            _clientHp = GetMaxHp();
 
             _networkCoordinator = new M3NetworkCoordinator(networkPort, hostIpForClient, poseSendRate);
             _networkCoordinator.BindLocalRig(
@@ -160,12 +187,18 @@ namespace Project.Core
             _networkCoordinator.RemoteCalibrationRequested += OnRemoteCalibrationRequested;
             _networkCoordinator.WorldRootSyncReceived += OnRemoteWorldRootSyncReceived;
             _networkCoordinator.RemoteShootReceived += OnRemoteShootReceived;
+            _networkCoordinator.RemoteShieldReceived += OnRemoteShieldReceived;
+            _networkCoordinator.HpUpdateReceived += OnHpUpdateReceived;
+            _networkCoordinator.MatchResultReceived += OnMatchResultReceived;
 
             _remoteProxy = gameObject.GetComponent<M3RemotePlayerProxy>();
             if (_remoteProxy == null)
             {
                 _remoteProxy = gameObject.AddComponent<M3RemotePlayerProxy>();
             }
+
+            UpdateEnemyHealthBar();
+            _playerHudView?.SetStatus(GetMaxHp(), GetMaxHp(), 0f, 0f);
         }
 
         private void Update()
@@ -179,6 +212,8 @@ namespace Project.Core
             }
 
             _stateMachine?.Tick();
+            TickCombat();
+            _playerHudView?.Tick();
         }
 
         private void OnDestroy()
@@ -188,11 +223,19 @@ namespace Project.Core
                 _projectileShooter.ShotFired -= OnLocalShotFired;
             }
 
+            if (_inputSource != null)
+            {
+                _inputSource.AButtonDown -= OnLocalShieldPressed;
+            }
+
             if (_networkCoordinator != null)
             {
                 _networkCoordinator.RemoteCalibrationRequested -= OnRemoteCalibrationRequested;
                 _networkCoordinator.WorldRootSyncReceived -= OnRemoteWorldRootSyncReceived;
                 _networkCoordinator.RemoteShootReceived -= OnRemoteShootReceived;
+                _networkCoordinator.RemoteShieldReceived -= OnRemoteShieldReceived;
+                _networkCoordinator.HpUpdateReceived -= OnHpUpdateReceived;
+                _networkCoordinator.MatchResultReceived -= OnMatchResultReceived;
                 _networkCoordinator.Stop();
             }
         }
@@ -349,6 +392,7 @@ namespace Project.Core
                 return;
             }
 
+            ResetCombatForNewMatch();
             _networkCoordinator.NotifyHostStartCalibration();
             _stateMachine?.ChangeState(AppStateId.Calibration);
         }
@@ -412,6 +456,8 @@ namespace Project.Core
         {
             _clientWorldRootLocked = false;
             _projectileShooter?.SetShootingEnabled(false);
+            _localShieldVisual?.Deactivate();
+            _remoteShieldVisual?.Deactivate();
             if (_alwaysVisibleLaser != null)
             {
                 _alwaysVisibleLaser.enabled = true;
@@ -499,7 +545,24 @@ namespace Project.Core
 
         private void OnLocalShotFired(M1ProjectileShooter.ShotInfo shot)
         {
-            _networkCoordinator?.NotifyShoot(
+            if (_stateMachine == null || _stateMachine.CurrentId != AppStateId.Playing || _networkCoordinator == null)
+            {
+                return;
+            }
+
+            _localShootCooldownUntil = Time.time + GetShootCooldown();
+            if (_selectedRole == NetworkRole.Host)
+            {
+                if (Time.time < _hostNextShootAllowedTime)
+                {
+                    return;
+                }
+
+                _hostNextShootAllowedTime = Time.time + GetShootCooldown();
+                HostResolveShotAgainstClient(shot);
+            }
+
+            _networkCoordinator.NotifyShoot(
                 shot.spawnPosition,
                 shot.direction,
                 shot.speed,
@@ -520,6 +583,24 @@ namespace Project.Core
                 shot.speed,
                 shot.maxDistance,
                 shot.lifetime);
+
+            if (_selectedRole == NetworkRole.Host)
+            {
+                if (Time.time < _clientNextShootAllowedTime)
+                {
+                    return;
+                }
+
+                _clientNextShootAllowedTime = Time.time + GetShootCooldown();
+                HostResolveShotAgainstHost(new M1ProjectileShooter.ShotInfo
+                {
+                    spawnPosition = shot.spawnPosition,
+                    direction = shot.direction,
+                    speed = shot.speed,
+                    maxDistance = shot.maxDistance,
+                    lifetime = shot.lifetime
+                });
+            }
         }
 
         private IEnumerator BroadcastWorldRootSyncBurst()
@@ -543,13 +624,23 @@ namespace Project.Core
 
         private void OnEnterPlaying()
         {
+            if (_hostHp <= 0 || _clientHp <= 0)
+            {
+                _hostHp = GetMaxHp();
+                _clientHp = GetMaxHp();
+            }
+
             _projectileShooter?.SetShootingEnabled(true);
             if (_alwaysVisibleLaser != null)
             {
                 _alwaysVisibleLaser.enabled = true;
             }
+
+            EnsureShieldVisuals();
+            BindShieldAnchors();
+            _playerHudView?.SetVisible(true);
             RefreshRayVisuals();
-            Debug.Log("M1: Enter Playing");
+            Debug.Log($"M5: Enter Playing as {_selectedRole}. HostHP={_hostHp} ClientHP={_clientHp}");
         }
 
         private void OnExitPlaying()
@@ -561,6 +652,394 @@ namespace Project.Core
             }
 
             _calibrationView?.SetVisible(false);
+            _localShieldVisual?.Deactivate();
+            _remoteShieldVisual?.Deactivate();
+            _playerHudView?.SetVisible(false);
+        }
+
+        private void OnEnterResult()
+        {
+            _projectileShooter?.SetShootingEnabled(false);
+            _localShieldVisual?.Deactivate();
+            _remoteShieldVisual?.Deactivate();
+            _resultView?.SetStatus(_resultText);
+            _resultView?.SetPrimaryButton("Back To Menu", true);
+            _playerHudView?.SetVisible(true);
+            Debug.Log($"M5: Enter Result => {_resultText}");
+        }
+
+        private void OnExitResult()
+        {
+        }
+
+        private void OnTickResult()
+        {
+            _resultView?.Tick();
+        }
+
+        private void HandleResultBackToMenuClicked()
+        {
+            _networkCoordinator?.Stop();
+            _selectedRole = NetworkRole.None;
+            _clientWorldRootLocked = false;
+            _stateMachine?.ChangeState(AppStateId.MainMenu);
+        }
+
+        private void OnLocalShieldPressed()
+        {
+            if (_stateMachine == null || _stateMachine.CurrentId != AppStateId.Playing || _selectedRole == NetworkRole.None)
+            {
+                return;
+            }
+
+            if (_selectedRole == NetworkRole.Host)
+            {
+                if (TryActivateHostShield())
+                {
+                    _networkCoordinator?.NotifyShield(true, GetShieldDuration());
+                }
+            }
+            else if (_selectedRole == NetworkRole.Client)
+            {
+                if (TryActivateClientShield())
+                {
+                    _networkCoordinator?.NotifyShield(true, GetShieldDuration());
+                }
+            }
+        }
+
+        private void OnRemoteShieldReceived(ShieldPayload payload)
+        {
+            if (payload == null || !payload.active)
+            {
+                return;
+            }
+
+            if (_selectedRole == NetworkRole.Host)
+            {
+                ActivateClientShieldAuthoritative(payload.duration);
+            }
+            else if (_selectedRole == NetworkRole.Client)
+            {
+                ActivateHostShieldVisual(payload.duration);
+            }
+        }
+
+        private void OnHpUpdateReceived(HpUpdatePayload payload)
+        {
+            if (payload == null)
+            {
+                return;
+            }
+
+            _hostHp = payload.hostHp;
+            _clientHp = payload.clientHp;
+            Debug.Log($"M5: HP update => Host={_hostHp} Client={_clientHp}");
+        }
+
+        private void OnMatchResultReceived(MatchResultPayload payload)
+        {
+            if (payload == null || string.IsNullOrEmpty(payload.winnerRole))
+            {
+                return;
+            }
+
+            var winner = payload.winnerRole;
+            _resultText = winner == "Host" ? "Host Wins" : "Client Wins";
+            if (_stateMachine != null && _stateMachine.CurrentId != AppStateId.Result)
+            {
+                _stateMachine.ChangeState(AppStateId.Result);
+            }
+        }
+
+        private void TickCombat()
+        {
+            if (_stateMachine == null)
+            {
+                return;
+            }
+
+            BindShieldAnchors();
+            UpdateEnemyHealthBar();
+            var now = Time.time;
+            if (_stateMachine.CurrentId == AppStateId.Playing)
+            {
+                if (_selectedRole == NetworkRole.Host)
+                {
+                    if (now >= _hostShieldEndTime)
+                    {
+                        _localShieldVisual?.Deactivate();
+                    }
+
+                    if (now >= _clientShieldEndTime)
+                    {
+                        _remoteShieldVisual?.Deactivate();
+                    }
+                }
+                else if (_selectedRole == NetworkRole.Client)
+                {
+                    if (now >= _clientShieldEndTime)
+                    {
+                        _localShieldVisual?.Deactivate();
+                    }
+
+                    if (now >= _hostShieldEndTime)
+                    {
+                        _remoteShieldVisual?.Deactivate();
+                    }
+                }
+            }
+
+            UpdateLocalHud();
+        }
+
+        private void ResetCombatForNewMatch()
+        {
+            _hostHp = GetMaxHp();
+            _clientHp = GetMaxHp();
+            _hostShieldEndTime = -1f;
+            _clientShieldEndTime = -1f;
+            _hostShieldCooldownUntil = 0f;
+            _clientShieldCooldownUntil = 0f;
+            _hostNextShootAllowedTime = 0f;
+            _clientNextShootAllowedTime = 0f;
+            _localShootCooldownUntil = 0f;
+            _resultText = "Result";
+            _networkCoordinator?.NotifyHostHpUpdate(_hostHp, _clientHp);
+            UpdateEnemyHealthBar();
+        }
+
+        private void HostResolveShotAgainstClient(M1ProjectileShooter.ShotInfo shot)
+        {
+            if (_clientHp <= 0)
+            {
+                return;
+            }
+
+            if (Time.time < _clientShieldEndTime)
+            {
+                Debug.Log("M5: Host shot blocked by Client shield");
+                return;
+            }
+
+            if (!IsShotHitTarget(shot, _remoteProxy != null ? _remoteProxy.HeadTransform : null))
+            {
+                return;
+            }
+
+            _clientHp = Mathf.Max(0, _clientHp - GetDamage());
+            _networkCoordinator?.NotifyHostHpUpdate(_hostHp, _clientHp);
+            Debug.Log($"M5: Host hit Client. Host={_hostHp} Client={_clientHp}");
+            if (_clientHp <= 0)
+            {
+                EnterResultAsHost("Host");
+            }
+        }
+
+        private void HostResolveShotAgainstHost(M1ProjectileShooter.ShotInfo shot)
+        {
+            if (_hostHp <= 0)
+            {
+                return;
+            }
+
+            if (Time.time < _hostShieldEndTime)
+            {
+                Debug.Log("M5: Client shot blocked by Host shield");
+                return;
+            }
+
+            if (!IsShotHitTarget(shot, Camera.main != null ? Camera.main.transform : null))
+            {
+                return;
+            }
+
+            _hostHp = Mathf.Max(0, _hostHp - GetDamage());
+            _networkCoordinator?.NotifyHostHpUpdate(_hostHp, _clientHp);
+            Debug.Log($"M5: Client hit Host. Host={_hostHp} Client={_clientHp}");
+            if (_hostHp <= 0)
+            {
+                EnterResultAsHost("Client");
+            }
+        }
+
+        private void EnterResultAsHost(string winnerRole)
+        {
+            _resultText = winnerRole == "Host" ? "Host Wins" : "Client Wins";
+            _networkCoordinator?.NotifyHostMatchResult(winnerRole);
+            _stateMachine?.ChangeState(AppStateId.Result);
+        }
+
+        private bool IsShotHitTarget(M1ProjectileShooter.ShotInfo shot, Transform targetHead)
+        {
+            if (targetHead == null)
+            {
+                return false;
+            }
+
+            var dir = shot.direction.sqrMagnitude < 0.0001f ? Vector3.forward : shot.direction.normalized;
+            var toTarget = targetHead.position - shot.spawnPosition;
+            var projection = Vector3.Dot(dir, toTarget);
+            if (projection < 0f || projection > Mathf.Max(0.1f, shot.maxDistance))
+            {
+                return false;
+            }
+
+            var closest = shot.spawnPosition + dir * projection;
+            var distance = Vector3.Distance(closest, targetHead.position);
+            return distance <= Mathf.Max(0.05f, hitCheckRadius + GetProjectileRadius());
+        }
+
+        private bool TryActivateHostShield()
+        {
+            var now = Time.time;
+            if (now < _hostShieldCooldownUntil || now < _hostShieldEndTime)
+            {
+                return false;
+            }
+
+            var duration = GetShieldDuration();
+            _hostShieldEndTime = now + duration;
+            _hostShieldCooldownUntil = now + GetShieldCooldown();
+            _localShieldVisual?.Activate(duration);
+            return true;
+        }
+
+        private bool TryActivateClientShield()
+        {
+            var now = Time.time;
+            if (now < _clientShieldCooldownUntil || now < _clientShieldEndTime)
+            {
+                return false;
+            }
+
+            var duration = GetShieldDuration();
+            _clientShieldEndTime = now + duration;
+            _clientShieldCooldownUntil = now + GetShieldCooldown();
+            _localShieldVisual?.Activate(duration);
+            return true;
+        }
+
+        private void ActivateClientShieldAuthoritative(float duration)
+        {
+            var now = Time.time;
+            var d = Mathf.Max(0.1f, duration);
+            _clientShieldEndTime = now + d;
+            _clientShieldCooldownUntil = now + GetShieldCooldown();
+            _remoteShieldVisual?.Activate(d);
+        }
+
+        private void ActivateHostShieldVisual(float duration)
+        {
+            var d = Mathf.Max(0.1f, duration);
+            _hostShieldEndTime = Time.time + d;
+            _remoteShieldVisual?.Activate(d);
+        }
+
+        private void EnsureShieldVisuals()
+        {
+            if (_localShieldVisual == null)
+            {
+                _localShieldVisual = gameObject.GetComponent<M5ShieldVisual>();
+                if (_localShieldVisual == null)
+                {
+                    _localShieldVisual = gameObject.AddComponent<M5ShieldVisual>();
+                }
+            }
+
+            if (_remoteShieldVisual == null)
+            {
+                var remoteShieldAnchor = transform.Find("RemoteShieldRoot");
+                if (remoteShieldAnchor == null)
+                {
+                    var rootGo = new GameObject("RemoteShieldRoot");
+                    rootGo.transform.SetParent(transform, false);
+                    remoteShieldAnchor = rootGo.transform;
+                }
+
+                _remoteShieldVisual = remoteShieldAnchor.GetComponent<M5ShieldVisual>();
+                if (_remoteShieldVisual == null)
+                {
+                    _remoteShieldVisual = remoteShieldAnchor.gameObject.AddComponent<M5ShieldVisual>();
+                }
+            }
+        }
+
+        private void BindShieldAnchors()
+        {
+            if (_localShieldVisual != null && Camera.main != null)
+            {
+                _localShieldVisual.BindAnchor(Camera.main.transform);
+            }
+
+            if (_remoteShieldVisual != null && _remoteProxy != null && _remoteProxy.HeadTransform != null)
+            {
+                _remoteShieldVisual.BindAnchor(_remoteProxy.HeadTransform);
+            }
+        }
+
+        private int GetMaxHp() => combatBalanceConfig != null ? combatBalanceConfig.hp : 100;
+        private int GetDamage() => combatBalanceConfig != null ? combatBalanceConfig.damage : 10;
+        private float GetProjectileSpeed() => combatBalanceConfig != null ? combatBalanceConfig.projectileSpeed : 5f;
+        private float GetProjectileRadius() => combatBalanceConfig != null ? combatBalanceConfig.projectileRadius : 0.033f;
+        private float GetShootCooldown() => combatBalanceConfig != null ? combatBalanceConfig.shootCooldown : 1f;
+        private float GetShieldDuration() => combatBalanceConfig != null ? combatBalanceConfig.shieldDuration : 1.5f;
+        private float GetShieldCooldown() => combatBalanceConfig != null ? combatBalanceConfig.shieldCooldown : 3f;
+
+        private void UpdateEnemyHealthBar()
+        {
+            if (_remoteProxy == null || _networkCoordinator == null || !_networkCoordinator.HasRemotePose)
+            {
+                return;
+            }
+
+            var maxHp = Mathf.Max(1, GetMaxHp());
+            int enemyHp;
+            if (_selectedRole == NetworkRole.Host)
+            {
+                enemyHp = _clientHp;
+            }
+            else if (_selectedRole == NetworkRole.Client)
+            {
+                enemyHp = _hostHp;
+            }
+            else
+            {
+                enemyHp = maxHp;
+            }
+
+            var normalized = Mathf.Clamp01(enemyHp / (float)maxHp);
+            _remoteProxy.SetEnemyHealthNormalized(normalized);
+        }
+
+        private void UpdateLocalHud()
+        {
+            if (_playerHudView == null)
+            {
+                return;
+            }
+
+            var now = Time.time;
+            int myHp;
+            float myShieldCd;
+            if (_selectedRole == NetworkRole.Host)
+            {
+                myHp = _hostHp;
+                myShieldCd = Mathf.Max(0f, _hostShieldCooldownUntil - now);
+            }
+            else if (_selectedRole == NetworkRole.Client)
+            {
+                myHp = _clientHp;
+                myShieldCd = Mathf.Max(0f, _clientShieldCooldownUntil - now);
+            }
+            else
+            {
+                myHp = GetMaxHp();
+                myShieldCd = 0f;
+            }
+
+            var myShootCd = Mathf.Max(0f, _localShootCooldownUntil - now);
+            _playerHudView.SetStatus(myHp, GetMaxHp(), myShootCd, myShieldCd);
         }
 
         private static void OnExitClicked()

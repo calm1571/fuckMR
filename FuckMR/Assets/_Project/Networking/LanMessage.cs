@@ -37,6 +37,26 @@ namespace Project.Networking
     }
 
     [Serializable]
+    public sealed class ShieldPayload
+    {
+        public bool active;
+        public float duration;
+    }
+
+    [Serializable]
+    public sealed class HpUpdatePayload
+    {
+        public int hostHp;
+        public int clientHp;
+    }
+
+    [Serializable]
+    public sealed class MatchResultPayload
+    {
+        public string winnerRole;
+    }
+
+    [Serializable]
     public struct PoseData
     {
         public Vector3 position;
@@ -51,5 +71,8 @@ namespace Project.Networking
         public const string StartCalibration = "START_CALIBRATION";
         public const string WorldRootSync = "WORLD_ROOT_SYNC";
         public const string Shoot = "SHOOT";
+        public const string Shield = "SHIELD";
+        public const string HpUpdate = "HP_UPDATE";
+        public const string MatchResult = "MATCH_RESULT";
     }
 }
