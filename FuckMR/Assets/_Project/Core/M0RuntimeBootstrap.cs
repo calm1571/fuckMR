@@ -1,6 +1,7 @@
 using System.Collections;
 using Project.Gameplay.Combat;
 using Project.Gameplay.Input;
+using Project.MRWorld;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 using Unity.XR.PXR;
@@ -11,6 +12,9 @@ namespace Project.Core
     {
         [SerializeField] private float menuDistance = 2.2f;
         [SerializeField] private float menuVerticalOffset = -0.02f;
+        [SerializeField] private float calibrationMoveSpeed = 1.2f;
+        [SerializeField] private float calibrationRotateSpeed = 55f;
+        [SerializeField] private float calibrationHeightSpeed = 0.45f;
 
         private static M0RuntimeBootstrap _instance;
 
@@ -19,6 +23,9 @@ namespace Project.Core
         private M1InputDebugProbe _inputDebugProbe;
         private M1ProjectileShooter _projectileShooter;
         private M1AlwaysVisibleControllerLaser _alwaysVisibleLaser;
+        private CalibrationView _calibrationView;
+        private WorldRootController _worldRootController;
+        private GameObject _worldRootMarker;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureBootstrapExists()
@@ -70,10 +77,25 @@ namespace Project.Core
             StartCoroutine(EnableOfficialPassthroughWithRetry());
 
             var menuView = new MainMenuView(camera.transform, HandleStartClicked, OnExitClicked, menuDistance, menuVerticalOffset);
+            _calibrationView = new CalibrationView(camera.transform, HandleCalibrationConfirmClicked, HandleCalibrationBackClicked, menuDistance, menuVerticalOffset);
+
+            var worldRootTransform = EnsureWorldRootExists();
+            _worldRootController = new WorldRootController(
+                worldRootTransform,
+                camera.transform,
+                calibrationMoveSpeed,
+                calibrationRotateSpeed,
+                calibrationHeightSpeed);
+            _worldRootMarker = EnsureWorldRootMarker(worldRootTransform);
+            if (_worldRootMarker != null)
+            {
+                _worldRootMarker.SetActive(false);
+            }
 
             _stateMachine = new AppStateMachine();
             _stateMachine.Register(new BootState(() => _stateMachine.ChangeState(AppStateId.MainMenu)));
             _stateMachine.Register(new MainMenuState(menuView));
+            _stateMachine.Register(new CalibrationState(OnEnterCalibration, OnExitCalibration, OnTickCalibration));
             _stateMachine.Register(new PlayingState(OnEnterPlaying, OnExitPlaying));
             _stateMachine.ChangeState(AppStateId.Boot);
 
@@ -204,7 +226,55 @@ namespace Project.Core
 
         private void HandleStartClicked()
         {
+            _stateMachine?.ChangeState(AppStateId.Calibration);
+        }
+
+        private void HandleCalibrationConfirmClicked()
+        {
             _stateMachine?.ChangeState(AppStateId.Playing);
+        }
+
+        private void HandleCalibrationBackClicked()
+        {
+            _stateMachine?.ChangeState(AppStateId.MainMenu);
+        }
+
+        private void OnEnterCalibration()
+        {
+            _projectileShooter?.SetShootingEnabled(false);
+            if (_alwaysVisibleLaser != null)
+            {
+                _alwaysVisibleLaser.enabled = true;
+            }
+
+            _calibrationView?.SetVisible(true);
+            _calibrationView?.SetStatus(_worldRootController != null ? _worldRootController.BuildStatusText() : "WorldRoot unavailable");
+            if (_worldRootMarker != null)
+            {
+                _worldRootMarker.SetActive(true);
+            }
+
+            RefreshRayVisuals();
+            Debug.Log("M2: Enter Calibration");
+        }
+
+        private void OnExitCalibration()
+        {
+            _calibrationView?.SetVisible(false);
+            if (_worldRootMarker != null)
+            {
+                _worldRootMarker.SetActive(false);
+            }
+        }
+
+        private void OnTickCalibration()
+        {
+            _worldRootController?.Tick(Time.deltaTime);
+            _calibrationView?.Tick();
+            if (_worldRootController != null)
+            {
+                _calibrationView?.SetStatus(_worldRootController.BuildStatusText());
+            }
         }
 
         private void OnEnterPlaying()
@@ -225,6 +295,8 @@ namespace Project.Core
             {
                 _alwaysVisibleLaser.enabled = false;
             }
+
+            _calibrationView?.SetVisible(false);
         }
 
         private static void OnExitClicked()
@@ -291,6 +363,63 @@ namespace Project.Core
             }
 
             return controllers.Length > 0 ? controllers[0] : null;
+        }
+
+        private static Transform EnsureWorldRootExists()
+        {
+            var existing = GameObject.Find("WorldRoot");
+            if (existing != null)
+            {
+                return existing.transform;
+            }
+
+            var root = new GameObject("WorldRoot");
+            return root.transform;
+        }
+
+        private static GameObject EnsureWorldRootMarker(Transform worldRoot)
+        {
+            if (worldRoot == null)
+            {
+                return null;
+            }
+
+            var existing = worldRoot.Find("WorldRootMarker");
+            if (existing != null)
+            {
+                return existing.gameObject;
+            }
+
+            var marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            marker.name = "WorldRootMarker";
+            marker.transform.SetParent(worldRoot, false);
+            marker.transform.localPosition = new Vector3(0f, 0f, 1.2f);
+            marker.transform.localScale = new Vector3(0.28f, 0.14f, 0.28f);
+
+            var collider = marker.GetComponent<Collider>();
+            if (collider != null)
+            {
+                collider.enabled = false;
+            }
+
+            var renderer = marker.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                var shader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (shader == null)
+                {
+                    shader = Shader.Find("Unlit/Color");
+                }
+
+                if (shader != null)
+                {
+                    var mat = new Material(shader);
+                    mat.color = new Color(0.95f, 0.55f, 0.1f, 1f);
+                    renderer.material = mat;
+                }
+            }
+
+            return marker;
         }
 
         private static Gradient BuildCyanGradient()
