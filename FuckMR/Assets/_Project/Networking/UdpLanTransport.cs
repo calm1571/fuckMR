@@ -120,6 +120,40 @@ namespace Project.Networking
             Send(message);
         }
 
+        public void SendWorldRootSync(WorldRootSyncPayload payload)
+        {
+            if (!_connected || payload == null)
+            {
+                return;
+            }
+
+            var message = new LanMessage
+            {
+                type = LanMessageTypes.WorldRootSync,
+                playerId = _localPlayerId,
+                payload = JsonUtility.ToJson(payload)
+            };
+
+            Send(message);
+        }
+
+        public void SendShoot(ShootPayload payload)
+        {
+            if (!_connected || payload == null)
+            {
+                return;
+            }
+
+            var message = new LanMessage
+            {
+                type = LanMessageTypes.Shoot,
+                playerId = _localPlayerId,
+                payload = JsonUtility.ToJson(payload)
+            };
+
+            Send(message);
+        }
+
         public void Stop()
         {
             _role = NetworkRole.None;

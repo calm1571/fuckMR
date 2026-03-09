@@ -1,6 +1,5 @@
 using System;
 using UnityEngine;
-using UnityEngine.XR.Interaction.Toolkit;
 
 namespace Project.Networking
 {
@@ -17,12 +16,18 @@ namespace Project.Networking
         private PosePayload _latestRemotePose;
         private bool _hasRemotePose;
         private bool _remoteCalibrationRequested;
+        private bool _remoteWorldRootSyncRequested;
+        private bool _remoteShootRequested;
+        private WorldRootSyncPayload _pendingWorldRootSync;
+        private ShootPayload _pendingShoot;
 
         private Transform _head;
         private Transform _leftHand;
         private Transform _rightHand;
 
         public event Action RemoteCalibrationRequested;
+        public event Action<WorldRootSyncPayload> WorldRootSyncReceived;
+        public event Action<ShootPayload> RemoteShootReceived;
 
         public NetworkRole Role { get; private set; } = NetworkRole.None;
         public bool IsConnected => _transport.IsConnected;
@@ -51,6 +56,10 @@ namespace Project.Networking
             _transport.StartHost(_port, _localPlayerId);
             _hasRemotePose = false;
             _remoteCalibrationRequested = false;
+            _remoteWorldRootSyncRequested = false;
+            _pendingWorldRootSync = null;
+            _remoteShootRequested = false;
+            _pendingShoot = null;
         }
 
         public void StartClient(string hostIp = null)
@@ -59,6 +68,10 @@ namespace Project.Networking
             _transport.StartClient(_port, _localPlayerId, string.IsNullOrEmpty(hostIp) ? _defaultHostIp : hostIp);
             _hasRemotePose = false;
             _remoteCalibrationRequested = false;
+            _remoteWorldRootSyncRequested = false;
+            _pendingWorldRootSync = null;
+            _remoteShootRequested = false;
+            _pendingShoot = null;
         }
 
         public void Stop()
@@ -67,6 +80,10 @@ namespace Project.Networking
             _transport.Stop();
             _hasRemotePose = false;
             _remoteCalibrationRequested = false;
+            _remoteWorldRootSyncRequested = false;
+            _pendingWorldRootSync = null;
+            _remoteShootRequested = false;
+            _pendingShoot = null;
         }
 
         public void Tick(float unscaledTime)
@@ -77,6 +94,24 @@ namespace Project.Networking
             {
                 _remoteCalibrationRequested = false;
                 RemoteCalibrationRequested?.Invoke();
+            }
+
+            if (_remoteWorldRootSyncRequested)
+            {
+                _remoteWorldRootSyncRequested = false;
+                if (_pendingWorldRootSync != null)
+                {
+                    WorldRootSyncReceived?.Invoke(_pendingWorldRootSync);
+                }
+            }
+
+            if (_remoteShootRequested)
+            {
+                _remoteShootRequested = false;
+                if (_pendingShoot != null)
+                {
+                    RemoteShootReceived?.Invoke(_pendingShoot);
+                }
             }
 
             if (!IsConnected || _head == null)
@@ -99,6 +134,39 @@ namespace Project.Networking
             {
                 _transport.SendStartCalibration();
             }
+        }
+
+        public void NotifyHostWorldRootSync(Vector3 position, Quaternion rotation)
+        {
+            if (Role != NetworkRole.Host)
+            {
+                return;
+            }
+
+            var payload = new WorldRootSyncPayload
+            {
+                position = position,
+                rotation = rotation
+            };
+            _transport.SendWorldRootSync(payload);
+        }
+
+        public void NotifyShoot(Vector3 spawnPosition, Vector3 direction, float speed, float maxDistance, float lifetime)
+        {
+            if (Role == NetworkRole.None || !_transport.IsConnected)
+            {
+                return;
+            }
+
+            var payload = new ShootPayload
+            {
+                spawnPosition = spawnPosition,
+                direction = direction.sqrMagnitude < 0.0001f ? Vector3.forward : direction.normalized,
+                speed = speed,
+                maxDistance = maxDistance,
+                lifetime = lifetime
+            };
+            _transport.SendShoot(payload);
         }
 
         public string BuildLobbyStatus()
@@ -164,7 +232,34 @@ namespace Project.Networking
             }
             else if (message.type == LanMessageTypes.StartCalibration && Role == NetworkRole.Client)
             {
+                Debug.Log("M4 Net: Client received START_CALIBRATION");
                 _remoteCalibrationRequested = true;
+            }
+            else if (message.type == LanMessageTypes.WorldRootSync && Role == NetworkRole.Client && !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingWorldRootSync = JsonUtility.FromJson<WorldRootSyncPayload>(message.payload);
+                    _remoteWorldRootSyncRequested = _pendingWorldRootSync != null;
+                    if (_remoteWorldRootSyncRequested)
+                    {
+                        Debug.Log("M4 Net: Client received WORLD_ROOT_SYNC");
+                    }
+                }
+                catch
+                {
+                }
+            }
+            else if (message.type == LanMessageTypes.Shoot && !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingShoot = JsonUtility.FromJson<ShootPayload>(message.payload);
+                    _remoteShootRequested = _pendingShoot != null;
+                }
+                catch
+                {
+                }
             }
         }
     }

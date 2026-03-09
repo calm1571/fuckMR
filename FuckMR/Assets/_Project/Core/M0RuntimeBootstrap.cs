@@ -20,6 +20,8 @@ namespace Project.Core
         [SerializeField] private int networkPort = 27777;
         [SerializeField] private string hostIpForClient = "192.168.50.2";
         [SerializeField] private float poseSendRate = 30f;
+        [SerializeField] private int worldRootSyncBurstCount = 5;
+        [SerializeField] private float worldRootSyncBurstInterval = 0.12f;
 
         private static M0RuntimeBootstrap _instance;
 
@@ -37,6 +39,9 @@ namespace Project.Core
         private M3NetworkCoordinator _networkCoordinator;
         private M3RemotePlayerProxy _remoteProxy;
         private NetworkRole _selectedRole = NetworkRole.None;
+        private Transform _worldRootTransform;
+        private bool _clientWorldRootLocked;
+        private Coroutine _worldRootSyncRoutine;
         private ActionBasedController _leftActionController;
         private ActionBasedController _rightActionController;
 
@@ -95,14 +100,14 @@ namespace Project.Core
             _lobbyClientView = new LobbyView(camera.transform, "Lobby Client", "Waiting Host", null, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
             _calibrationView = new CalibrationView(camera.transform, HandleCalibrationConfirmClicked, HandleCalibrationBackClicked, menuDistance, menuVerticalOffset);
 
-            var worldRootTransform = EnsureWorldRootExists();
+            _worldRootTransform = EnsureWorldRootExists();
             _worldRootController = new WorldRootController(
-                worldRootTransform,
+                _worldRootTransform,
                 camera.transform,
                 calibrationMoveSpeed,
                 calibrationRotateSpeed,
                 calibrationHeightSpeed);
-            _worldRootMarker = EnsureWorldRootMarker(worldRootTransform);
+            _worldRootMarker = EnsureWorldRootMarker(_worldRootTransform);
             if (_worldRootMarker != null)
             {
                 _worldRootMarker.SetActive(false);
@@ -136,6 +141,7 @@ namespace Project.Core
             }
 
             _projectileShooter.Bind(_inputSource);
+            _projectileShooter.ShotFired += OnLocalShotFired;
             _projectileShooter.SetShootingEnabled(false);
             _alwaysVisibleLaser = gameObject.GetComponent<M1AlwaysVisibleControllerLaser>();
             if (_alwaysVisibleLaser == null)
@@ -152,6 +158,8 @@ namespace Project.Core
                 _leftActionController != null ? _leftActionController.transform : null,
                 _rightActionController != null ? _rightActionController.transform : null);
             _networkCoordinator.RemoteCalibrationRequested += OnRemoteCalibrationRequested;
+            _networkCoordinator.WorldRootSyncReceived += OnRemoteWorldRootSyncReceived;
+            _networkCoordinator.RemoteShootReceived += OnRemoteShootReceived;
 
             _remoteProxy = gameObject.GetComponent<M3RemotePlayerProxy>();
             if (_remoteProxy == null)
@@ -171,6 +179,22 @@ namespace Project.Core
             }
 
             _stateMachine?.Tick();
+        }
+
+        private void OnDestroy()
+        {
+            if (_projectileShooter != null)
+            {
+                _projectileShooter.ShotFired -= OnLocalShotFired;
+            }
+
+            if (_networkCoordinator != null)
+            {
+                _networkCoordinator.RemoteCalibrationRequested -= OnRemoteCalibrationRequested;
+                _networkCoordinator.WorldRootSyncReceived -= OnRemoteWorldRootSyncReceived;
+                _networkCoordinator.RemoteShootReceived -= OnRemoteShootReceived;
+                _networkCoordinator.Stop();
+            }
         }
 
         private static IEnumerator RequestMrPermissionWithSdk()
@@ -292,6 +316,7 @@ namespace Project.Core
         {
             _networkCoordinator?.Stop();
             _selectedRole = NetworkRole.None;
+            _clientWorldRootLocked = false;
             _stateMachine?.ChangeState(AppStateId.RoleSelect);
         }
 
@@ -338,10 +363,29 @@ namespace Project.Core
 
         private void HandleCalibrationConfirmClicked()
         {
-            if (_selectedRole == NetworkRole.Host && _networkCoordinator != null && _networkCoordinator.IsConnected)
+            if (_selectedRole == NetworkRole.Client && !_clientWorldRootLocked)
             {
-                // Host can re-send calibration start in case client joined slightly late.
-                _networkCoordinator.NotifyHostStartCalibration();
+                _calibrationView?.SetStatus("Waiting host confirmation...");
+                return;
+            }
+
+            if (_selectedRole == NetworkRole.Host)
+            {
+                if (_networkCoordinator == null || !_networkCoordinator.IsConnected)
+                {
+                    _calibrationView?.SetStatus("Client disconnected. Please reconnect.");
+                    return;
+                }
+
+                if (_worldRootTransform != null)
+                {
+                    if (_worldRootSyncRoutine != null)
+                    {
+                        StopCoroutine(_worldRootSyncRoutine);
+                    }
+
+                    _worldRootSyncRoutine = StartCoroutine(BroadcastWorldRootSyncBurst());
+                }
             }
 
             _stateMachine?.ChangeState(AppStateId.Playing);
@@ -366,6 +410,7 @@ namespace Project.Core
 
         private void OnEnterCalibration()
         {
+            _clientWorldRootLocked = false;
             _projectileShooter?.SetShootingEnabled(false);
             if (_alwaysVisibleLaser != null)
             {
@@ -373,7 +418,14 @@ namespace Project.Core
             }
 
             _calibrationView?.SetVisible(true);
-            _calibrationView?.SetStatus(_worldRootController != null ? _worldRootController.BuildStatusText() : "WorldRoot unavailable");
+            if (_selectedRole == NetworkRole.Client)
+            {
+                _calibrationView?.SetStatus("Waiting host confirmation...\nYou can fine-tune locally before lock.");
+            }
+            else
+            {
+                _calibrationView?.SetStatus(_worldRootController != null ? _worldRootController.BuildStatusText() : "WorldRoot unavailable");
+            }
             if (_worldRootMarker != null)
             {
                 _worldRootMarker.SetActive(true);
@@ -390,16 +442,103 @@ namespace Project.Core
             {
                 _worldRootMarker.SetActive(false);
             }
+
+            if (_worldRootSyncRoutine != null)
+            {
+                StopCoroutine(_worldRootSyncRoutine);
+                _worldRootSyncRoutine = null;
+            }
         }
 
         private void OnTickCalibration()
         {
-            _worldRootController?.Tick(Time.deltaTime);
+            if (!_clientWorldRootLocked)
+            {
+                _worldRootController?.Tick(Time.deltaTime);
+            }
+
             _calibrationView?.Tick();
             if (_worldRootController != null)
             {
-                _calibrationView?.SetStatus(_worldRootController.BuildStatusText());
+                var baseStatus = _worldRootController.BuildStatusText();
+                if (_selectedRole == NetworkRole.Host)
+                {
+                    _calibrationView?.SetStatus(baseStatus + "\nHost Confirm will broadcast WorldRoot.");
+                }
+                else if (_selectedRole == NetworkRole.Client)
+                {
+                    var suffix = _clientWorldRootLocked ? "\nWorldRoot locked by host. Entering match..." : "\nWaiting host confirmation...";
+                    _calibrationView?.SetStatus(baseStatus + suffix);
+                }
+                else
+                {
+                    _calibrationView?.SetStatus(baseStatus);
+                }
             }
+        }
+
+        private void OnRemoteWorldRootSyncReceived(WorldRootSyncPayload payload)
+        {
+            if (_selectedRole != NetworkRole.Client || payload == null)
+            {
+                return;
+            }
+
+            if (_worldRootTransform != null)
+            {
+                _worldRootTransform.SetPositionAndRotation(payload.position, payload.rotation);
+                _clientWorldRootLocked = true;
+                Debug.Log($"M4: Client applied WorldRoot sync: pos={payload.position}, rotY={payload.rotation.eulerAngles.y:F1}");
+            }
+
+            if (_stateMachine != null && _stateMachine.CurrentId == AppStateId.Calibration)
+            {
+                _stateMachine.ChangeState(AppStateId.Playing);
+            }
+        }
+
+        private void OnLocalShotFired(M1ProjectileShooter.ShotInfo shot)
+        {
+            _networkCoordinator?.NotifyShoot(
+                shot.spawnPosition,
+                shot.direction,
+                shot.speed,
+                shot.maxDistance,
+                shot.lifetime);
+        }
+
+        private void OnRemoteShootReceived(ShootPayload shot)
+        {
+            if (_projectileShooter == null || shot == null || _stateMachine == null || _stateMachine.CurrentId != AppStateId.Playing)
+            {
+                return;
+            }
+
+            _projectileShooter.SpawnRemoteProjectile(
+                shot.spawnPosition,
+                shot.direction,
+                shot.speed,
+                shot.maxDistance,
+                shot.lifetime);
+        }
+
+        private IEnumerator BroadcastWorldRootSyncBurst()
+        {
+            if (_networkCoordinator == null || _worldRootTransform == null)
+            {
+                yield break;
+            }
+
+            var count = Mathf.Max(1, worldRootSyncBurstCount);
+            var interval = Mathf.Max(0.02f, worldRootSyncBurstInterval);
+            for (var i = 0; i < count; i++)
+            {
+                _networkCoordinator.NotifyHostStartCalibration();
+                _networkCoordinator.NotifyHostWorldRootSync(_worldRootTransform.position, _worldRootTransform.rotation);
+                yield return new WaitForSecondsRealtime(interval);
+            }
+
+            _worldRootSyncRoutine = null;
         }
 
         private void OnEnterPlaying()

@@ -1,11 +1,21 @@
 using Project.Gameplay.Input;
 using UnityEngine;
 using UnityEngine.XR;
+using System;
 
 namespace Project.Gameplay.Combat
 {
     public sealed class M1ProjectileShooter : MonoBehaviour
     {
+        public struct ShotInfo
+        {
+            public Vector3 spawnPosition;
+            public Vector3 direction;
+            public float speed;
+            public float maxDistance;
+            public float lifetime;
+        }
+
         [Header("Projectile")]
         [SerializeField] private GameObject projectilePrefab;
         [SerializeField] private float projectileSpeed = 5f;
@@ -25,6 +35,7 @@ namespace Project.Gameplay.Combat
         private bool _isShootingEnabled;
         private bool _missingOriginLogged;
 
+        public event Action<ShotInfo> ShotFired;
         public bool HasShootOriginAssigned => shootOriginOverride != null;
 
         public void SetShootOrigin(Transform origin)
@@ -79,9 +90,19 @@ namespace Project.Gameplay.Combat
 
             var direction = rotation * Vector3.forward;
             var spawnPos = position + direction * muzzleOffset;
+            SpawnProjectile(spawnPos, direction, projectileSpeed, projectileMaxDistance, projectileLifetime, true);
+        }
 
+        public void SpawnRemoteProjectile(Vector3 spawnPos, Vector3 direction, float speed, float maxDistance, float lifetime)
+        {
+            SpawnProjectile(spawnPos, direction, speed, maxDistance, lifetime, false);
+        }
+
+        private void SpawnProjectile(Vector3 spawnPos, Vector3 direction, float speed, float maxDistance, float lifetime, bool notifyShotEvent)
+        {
             var projectile = CreateProjectileObject();
-            projectile.transform.SetPositionAndRotation(spawnPos, Quaternion.LookRotation(direction, Vector3.up));
+            var normalizedDir = direction.sqrMagnitude < 0.0001f ? Vector3.forward : direction.normalized;
+            projectile.transform.SetPositionAndRotation(spawnPos, Quaternion.LookRotation(normalizedDir, Vector3.up));
             Debug.Log($"M1 Shoot: spawn={spawnPos} dir={direction}");
 
             var mover = projectile.GetComponent<M1Projectile>();
@@ -90,7 +111,18 @@ namespace Project.Gameplay.Combat
                 mover = projectile.AddComponent<M1Projectile>();
             }
 
-            mover.Initialize(direction, projectileSpeed, projectileMaxDistance, projectileLifetime);
+            mover.Initialize(normalizedDir, speed, maxDistance, lifetime);
+            if (notifyShotEvent)
+            {
+                ShotFired?.Invoke(new ShotInfo
+                {
+                    spawnPosition = spawnPos,
+                    direction = normalizedDir,
+                    speed = speed,
+                    maxDistance = maxDistance,
+                    lifetime = lifetime
+                });
+            }
         }
 
         private bool TryGetShootPose(out Vector3 position, out Quaternion rotation)
