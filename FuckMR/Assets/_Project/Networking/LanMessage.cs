@@ -63,6 +63,15 @@ namespace Project.Networking
     }
 
     [Serializable]
+    public sealed class CalibrationReadyPayload
+    {
+        public bool ready;
+        public bool hasPose;
+        public bool isLocked;
+        public float stability01;
+    }
+
+    [Serializable]
     public struct PoseData
     {
         public Vector3 position;
@@ -82,5 +91,6 @@ namespace Project.Networking
         public const string MatchResult = "MATCH_RESULT";
         public const string SharedAnchor = "SHARED_ANCHOR";
         public const string StartPlaying = "START_PLAYING";
+        public const string CalibrationReady = "CALIBRATION_READY";
     }
 }

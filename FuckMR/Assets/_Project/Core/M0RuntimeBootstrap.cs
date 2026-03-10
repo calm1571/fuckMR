@@ -35,6 +35,12 @@ namespace Project.Core
         [SerializeField] private float aprilTagSizeMm = 100f;
         [SerializeField] private int aprilTagFrameWidth = 640;
         [SerializeField] private int aprilTagFrameHeight = 480;
+        [SerializeField] private float aprilTagVisualSizeMeters = 0.1f;
+        [SerializeField] private float aprilTagVisualLineThicknessMeters = 0.006f;
+        [SerializeField] private float aprilTagVisualLiftMeters = 0.002f;
+        [SerializeField] private float calibrationReadyStabilityThreshold = 0.65f;
+        [SerializeField] private float calibrationReadyHoldSeconds = 0.4f;
+        [SerializeField] private float calibrationReadySendInterval = 0.25f;
         [SerializeField] private float hudDistance = 1.15f;
         [SerializeField] private Vector3 hudLocalOffset = new Vector3(0f, 0.28f, 0f);
 
@@ -81,6 +87,12 @@ namespace Project.Core
         private IMarkerTrackingSource _markerTrackingSource;
         private MarkerTrackingSample _markerSample;
         private bool _hasMarkerSample;
+        private GameObject _aprilTagTrackingFrame;
+        private bool _localCalibrationReady;
+        private bool _remoteCalibrationReady;
+        private float _localCalibrationReadySince = -1f;
+        private float _lastCalibrationReadySendTime;
+        private bool _lastSentCalibrationReady;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureBootstrapExists()
@@ -152,6 +164,12 @@ namespace Project.Core
                 _worldRootMarker.SetActive(false);
             }
 
+            _aprilTagTrackingFrame = EnsureAprilTagTrackingFrame(aprilTagVisualSizeMeters, aprilTagVisualLineThicknessMeters);
+            if (_aprilTagTrackingFrame != null)
+            {
+                _aprilTagTrackingFrame.SetActive(false);
+            }
+
             _stateMachine = new AppStateMachine();
             _stateMachine.Register(new BootState(() => _stateMachine.ChangeState(AppStateId.MainMenu)));
             _stateMachine.Register(new MainMenuState(menuView));
@@ -209,6 +227,7 @@ namespace Project.Core
             _networkCoordinator.MatchResultReceived += OnMatchResultReceived;
             _networkCoordinator.SharedAnchorReceived += OnSharedAnchorReceived;
             _networkCoordinator.StartPlayingRequested += OnStartPlayingRequested;
+            _networkCoordinator.RemoteCalibrationReadyReceived += OnRemoteCalibrationReadyReceived;
 
             _remoteProxy = gameObject.GetComponent<M3RemotePlayerProxy>();
             if (_remoteProxy == null)
@@ -287,6 +306,7 @@ namespace Project.Core
                 _networkCoordinator.MatchResultReceived -= OnMatchResultReceived;
                 _networkCoordinator.SharedAnchorReceived -= OnSharedAnchorReceived;
                 _networkCoordinator.StartPlayingRequested -= OnStartPlayingRequested;
+                _networkCoordinator.RemoteCalibrationReadyReceived -= OnRemoteCalibrationReadyReceived;
                 _networkCoordinator.Stop();
             }
         }
@@ -485,7 +505,9 @@ namespace Project.Core
         {
             if (_selectedRole == NetworkRole.Client && !_clientWorldRootLocked)
             {
-                _calibrationView?.SetStatus("Waiting host confirmation...");
+                var local = _localCalibrationReady ? "READY" : "WAIT";
+                var remote = _remoteCalibrationReady ? "READY" : "WAIT";
+                _calibrationView?.SetStatus($"Waiting host confirmation...\nDual-ready gate L/R: {local}/{remote}");
                 return;
             }
 
@@ -500,6 +522,12 @@ namespace Project.Core
                     }
 
                     ApplyWorldRootFromMarkerPose(_markerSample.pose);
+                }
+
+                if (!_localCalibrationReady || !_remoteCalibrationReady)
+                {
+                    _calibrationView?.SetStatus("Dual-ready gate not met.\nBoth Host and Client must be READY before Confirm.");
+                    return;
                 }
 
                 if (_networkCoordinator == null || !_networkCoordinator.IsConnected)
@@ -560,6 +588,11 @@ namespace Project.Core
             _clientWorldRootLocked = false;
             _nextCalibrationSyncTime = 0f;
             _hasMarkerSample = false;
+            _localCalibrationReady = false;
+            _remoteCalibrationReady = false;
+            _localCalibrationReadySince = -1f;
+            _lastCalibrationReadySendTime = -999f;
+            _lastSentCalibrationReady = false;
             _projectileShooter?.SetShootingEnabled(false);
             _localShieldVisual?.Deactivate();
             _remoteShieldVisual?.Deactivate();
@@ -573,14 +606,21 @@ namespace Project.Core
             if (_selectedRole == NetworkRole.Client)
             {
                 _calibrationView?.SetStatus("Waiting host confirmation...\nYou can fine-tune locally before lock.");
+                _calibrationView?.SetDetectionStatus("<color=#6CA9D9>Detection: waiting host marker lock...</color>");
             }
             else
             {
                 _calibrationView?.SetStatus(_worldRootController != null ? _worldRootController.BuildStatusText() : "WorldRoot unavailable");
+                _calibrationView?.SetDetectionStatus("<color=#6CA9D9>Detection: searching AprilTag...</color>");
             }
             if (_worldRootMarker != null)
             {
                 _worldRootMarker.SetActive(true);
+            }
+
+            if (_aprilTagTrackingFrame != null)
+            {
+                _aprilTagTrackingFrame.SetActive(false);
             }
 
             RefreshRayVisuals();
@@ -589,11 +629,21 @@ namespace Project.Core
 
         private void OnExitCalibration()
         {
+            if (_networkCoordinator != null && _networkCoordinator.IsConnected && _selectedRole != NetworkRole.None)
+            {
+                _networkCoordinator.NotifyCalibrationReady(false, false, false, 0f);
+            }
+
             _calibrationView?.SetVisible(false);
             _markerTrackingSource?.End();
             if (_worldRootMarker != null)
             {
                 _worldRootMarker.SetActive(false);
+            }
+
+            if (_aprilTagTrackingFrame != null)
+            {
+                _aprilTagTrackingFrame.SetActive(false);
             }
 
             if (_worldRootSyncRoutine != null)
@@ -615,6 +665,14 @@ namespace Project.Core
                 _markerTrackingSource.Tick(Time.deltaTime);
                 _hasMarkerSample = _markerTrackingSource.TryGetSample(out _markerSample);
             }
+            else
+            {
+                _hasMarkerSample = false;
+            }
+
+            UpdateLocalCalibrationReady(Time.unscaledTime);
+            SendCalibrationReadyIfNeeded(Time.unscaledTime);
+            UpdateAprilTagTrackingFrameVisual();
 
             if (_selectedRole == NetworkRole.Host && enableManualMarkerLock && _hasMarkerSample && _markerSample.hasPose && _markerSample.isLocked)
             {
@@ -622,23 +680,17 @@ namespace Project.Core
             }
 
             _calibrationView?.Tick();
+            _calibrationView?.SetDetectionStatus(BuildCalibrationDetectionText());
             if (_worldRootController != null)
             {
                 var baseStatus = _worldRootController.BuildStatusText();
                 if (_selectedRole == NetworkRole.Host)
                 {
-                    if (enableManualMarkerLock && _markerTrackingSource != null)
-                    {
-                        _calibrationView?.SetStatus(baseStatus + "\n" + _markerTrackingSource.BuildDebugText() + "\nHost Confirm will broadcast WorldRoot.");
-                    }
-                    else
-                    {
-                        _calibrationView?.SetStatus(baseStatus + "\nHost Confirm will broadcast WorldRoot.");
-                    }
+                    _calibrationView?.SetStatus(baseStatus + "\nDual-ready gate required. Host Confirm will broadcast WorldRoot.");
                 }
                 else if (_selectedRole == NetworkRole.Client)
                 {
-                    var suffix = _clientWorldRootLocked ? "\nWorldRoot locked by host. Entering match..." : "\nWaiting host confirmation...";
+                    var suffix = _clientWorldRootLocked ? "\nWorldRoot locked by host. Entering match..." : "\nDual-ready gate pending host confirmation...";
                     _calibrationView?.SetStatus(baseStatus + suffix);
                 }
                 else
@@ -656,6 +708,113 @@ namespace Project.Core
                 _networkCoordinator.NotifyHostWorldRootSync(_worldRootTransform.position, _worldRootTransform.rotation);
                 _nextCalibrationSyncTime = Time.unscaledTime + Mathf.Max(0.02f, calibrationSyncInterval);
             }
+        }
+
+        private string BuildCalibrationDetectionText()
+        {
+            if (!enableManualMarkerLock || _markerTrackingSource == null)
+            {
+                return "<color=#9DB2C6>Detection: manual world-root mode (no marker lock)</color>";
+            }
+
+            var gateText = $"Gate L/R: {(_localCalibrationReady ? "<color=#7CFF9A>READY</color>" : "<color=#FF8A8A>WAIT</color>")}/{(_remoteCalibrationReady ? "<color=#7CFF9A>READY</color>" : "<color=#FF8A8A>WAIT</color>")}";
+            var sourceText = _markerSample.sourceMode == MarkerTrackingSourceMode.AutoAprilTag ? "Source: Auto AprilTag" : "Source: Manual";
+            if (_hasMarkerSample && _markerSample.hasPose)
+            {
+                var stability = Mathf.RoundToInt(Mathf.Clamp01(_markerSample.stability01) * 100f);
+                if (_markerSample.isLocked)
+                {
+                    if (_selectedRole == NetworkRole.Host)
+                    {
+                        return $"<color=#7CFF9A>Detection: AprilTag locked ({stability}%).</color>\n{sourceText}\n{gateText}";
+                    }
+
+                    return $"<color=#7CFF9A>Detection: local AprilTag locked ({stability}%).</color>\n{sourceText}\n{gateText}";
+                }
+
+                if (_selectedRole == NetworkRole.Host)
+                {
+                    return $"<color=#FFD06D>Detection: AprilTag detected ({stability}%). Press X to lock marker.</color>\n{sourceText}\n{gateText}";
+                }
+
+                return $"<color=#FFD06D>Detection: local marker found ({stability}%). Press X to lock locally.</color>\n{sourceText}\n{gateText}";
+            }
+
+            return $"<color=#FF8A8A>Detection: AprilTag not found. Face tag 36h11 / ID0 (100mm) and keep it fully visible.</color>\n{gateText}";
+        }
+
+        private void UpdateLocalCalibrationReady(float now)
+        {
+            if (!enableManualMarkerLock || _markerTrackingSource == null)
+            {
+                _localCalibrationReady = true;
+                _localCalibrationReadySince = now;
+                return;
+            }
+
+            var stableEnough = _hasMarkerSample &&
+                               _markerSample.hasPose &&
+                               _markerSample.isLocked &&
+                               (!enableAutoAprilTagTracking || _markerSample.sourceMode == MarkerTrackingSourceMode.AutoAprilTag) &&
+                               _markerSample.stability01 >= Mathf.Clamp01(calibrationReadyStabilityThreshold);
+            if (stableEnough)
+            {
+                if (_localCalibrationReadySince < 0f)
+                {
+                    _localCalibrationReadySince = now;
+                }
+            }
+            else
+            {
+                _localCalibrationReadySince = -1f;
+            }
+
+            var hold = Mathf.Max(0f, calibrationReadyHoldSeconds);
+            _localCalibrationReady = stableEnough && _localCalibrationReadySince >= 0f && (now - _localCalibrationReadySince) >= hold;
+        }
+
+        private void SendCalibrationReadyIfNeeded(float now)
+        {
+            if (_networkCoordinator == null || !_networkCoordinator.IsConnected || _selectedRole == NetworkRole.None)
+            {
+                return;
+            }
+
+            var interval = Mathf.Max(0.05f, calibrationReadySendInterval);
+            if (_lastSentCalibrationReady == _localCalibrationReady && now - _lastCalibrationReadySendTime < interval)
+            {
+                return;
+            }
+
+            var stability = _hasMarkerSample ? _markerSample.stability01 : 0f;
+            var isLocked = _hasMarkerSample && _markerSample.isLocked;
+            _networkCoordinator.NotifyCalibrationReady(_localCalibrationReady, _hasMarkerSample, isLocked, stability);
+            _lastCalibrationReadySendTime = now;
+            _lastSentCalibrationReady = _localCalibrationReady;
+        }
+
+        private void UpdateAprilTagTrackingFrameVisual()
+        {
+            if (_aprilTagTrackingFrame == null)
+            {
+                return;
+            }
+
+            var shouldShow = _stateMachine != null &&
+                             _stateMachine.CurrentId == AppStateId.Calibration &&
+                             _hasMarkerSample &&
+                             _markerSample.hasPose &&
+                             _markerSample.sourceMode == MarkerTrackingSourceMode.AutoAprilTag;
+            _aprilTagTrackingFrame.SetActive(shouldShow);
+            if (!shouldShow)
+            {
+                return;
+            }
+
+            var pose = _markerSample.pose;
+            _aprilTagTrackingFrame.transform.SetPositionAndRotation(
+                pose.position + pose.rotation * Vector3.forward * Mathf.Max(0f, aprilTagVisualLiftMeters),
+                pose.rotation);
         }
 
         private void ApplyWorldRootFromMarkerPose(Pose markerPose)
@@ -695,6 +854,16 @@ namespace Project.Core
             {
                 _stateMachine.ChangeState(AppStateId.Playing);
             }
+        }
+
+        private void OnRemoteCalibrationReadyReceived(CalibrationReadyPayload payload)
+        {
+            if (payload == null)
+            {
+                return;
+            }
+
+            _remoteCalibrationReady = payload.ready;
         }
 
         private void OnSharedAnchorReceived(SharedAnchorPayload payload)
@@ -1384,6 +1553,55 @@ namespace Project.Core
 
             var root = new GameObject("WorldRoot");
             return root.transform;
+        }
+
+        private static GameObject EnsureAprilTagTrackingFrame(float sizeMeters, float lineThicknessMeters)
+        {
+            var existing = GameObject.Find("AprilTagTrackingFrame");
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var frame = new GameObject("AprilTagTrackingFrame");
+            frame.transform.position = Vector3.zero;
+            frame.transform.rotation = Quaternion.identity;
+
+            var size = Mathf.Clamp(sizeMeters, 0.04f, 0.4f);
+            var thickness = Mathf.Clamp(lineThicknessMeters, 0.0015f, 0.03f);
+            var half = size * 0.5f;
+
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null)
+            {
+                shader = Shader.Find("Unlit/Color");
+            }
+
+            Material mat = null;
+            if (shader != null)
+            {
+                mat = new Material(shader);
+                mat.color = new Color(0.15f, 1f, 0.95f, 1f);
+            }
+
+            CreateFrameEdge("Top", frame.transform, new Vector3(0f, half, 0f), new Vector3(size, thickness, thickness), mat);
+            CreateFrameEdge("Bottom", frame.transform, new Vector3(0f, -half, 0f), new Vector3(size, thickness, thickness), mat);
+            CreateFrameEdge("Left", frame.transform, new Vector3(-half, 0f, 0f), new Vector3(thickness, size, thickness), mat);
+            CreateFrameEdge("Right", frame.transform, new Vector3(half, 0f, 0f), new Vector3(thickness, size, thickness), mat);
+            CreateFrameEdge("Center", frame.transform, new Vector3(0f, 0f, 0f), new Vector3(thickness * 1.5f, thickness * 1.5f, thickness), mat);
+
+            return frame;
+        }
+
+        private static void CreateFrameEdge(string name, Transform parent, Vector3 localPos, Vector3 localScale, Material mat)
+        {
+            var edge = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            edge.name = name;
+            edge.transform.SetParent(parent, false);
+            edge.transform.localPosition = localPos;
+            edge.transform.localRotation = Quaternion.identity;
+            edge.transform.localScale = localScale;
+            ApplyMarkerPartStyle(edge, mat);
         }
 
         private static GameObject EnsureWorldRootMarker(Transform worldRoot)

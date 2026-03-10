@@ -23,12 +23,14 @@ namespace Project.Networking
         private bool _remoteMatchResultRequested;
         private bool _remoteSharedAnchorRequested;
         private bool _remoteStartPlayingRequested;
+        private bool _remoteCalibrationReadyRequested;
         private WorldRootSyncPayload _pendingWorldRootSync;
         private ShootPayload _pendingShoot;
         private ShieldPayload _pendingShield;
         private HpUpdatePayload _pendingHpUpdate;
         private MatchResultPayload _pendingMatchResult;
         private SharedAnchorPayload _pendingSharedAnchor;
+        private CalibrationReadyPayload _pendingCalibrationReady;
 
         private Transform _head;
         private Transform _leftHand;
@@ -42,6 +44,7 @@ namespace Project.Networking
         public event Action<MatchResultPayload> MatchResultReceived;
         public event Action<SharedAnchorPayload> SharedAnchorReceived;
         public event Action StartPlayingRequested;
+        public event Action<CalibrationReadyPayload> RemoteCalibrationReadyReceived;
 
         public NetworkRole Role { get; private set; } = NetworkRole.None;
         public bool IsConnected => _transport.IsConnected;
@@ -83,6 +86,8 @@ namespace Project.Networking
             _remoteSharedAnchorRequested = false;
             _pendingSharedAnchor = null;
             _remoteStartPlayingRequested = false;
+            _remoteCalibrationReadyRequested = false;
+            _pendingCalibrationReady = null;
         }
 
         public void StartClient(string hostIp = null)
@@ -104,6 +109,8 @@ namespace Project.Networking
             _remoteSharedAnchorRequested = false;
             _pendingSharedAnchor = null;
             _remoteStartPlayingRequested = false;
+            _remoteCalibrationReadyRequested = false;
+            _pendingCalibrationReady = null;
         }
 
         public void Stop()
@@ -125,6 +132,8 @@ namespace Project.Networking
             _remoteSharedAnchorRequested = false;
             _pendingSharedAnchor = null;
             _remoteStartPlayingRequested = false;
+            _remoteCalibrationReadyRequested = false;
+            _pendingCalibrationReady = null;
         }
 
         public void Tick(float unscaledTime)
@@ -195,6 +204,15 @@ namespace Project.Networking
             {
                 _remoteStartPlayingRequested = false;
                 StartPlayingRequested?.Invoke();
+            }
+
+            if (_remoteCalibrationReadyRequested)
+            {
+                _remoteCalibrationReadyRequested = false;
+                if (_pendingCalibrationReady != null)
+                {
+                    RemoteCalibrationReadyReceived?.Invoke(_pendingCalibrationReady);
+                }
             }
 
             if (!IsConnected || _head == null)
@@ -318,6 +336,24 @@ namespace Project.Networking
             }
 
             _transport.SendStartPlaying();
+        }
+
+        public void NotifyCalibrationReady(bool ready, bool hasPose, bool isLocked, float stability01)
+        {
+            if (Role == NetworkRole.None || !_transport.IsConnected)
+            {
+                return;
+            }
+
+            var payload = new CalibrationReadyPayload
+            {
+                ready = ready,
+                hasPose = hasPose,
+                isLocked = isLocked,
+                stability01 = Mathf.Clamp01(stability01)
+            };
+
+            _transport.SendCalibrationReady(payload);
         }
 
         public string BuildLobbyStatus()
@@ -459,6 +495,17 @@ namespace Project.Networking
             else if (message.type == LanMessageTypes.StartPlaying && Role == NetworkRole.Client)
             {
                 _remoteStartPlayingRequested = true;
+            }
+            else if (message.type == LanMessageTypes.CalibrationReady && !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingCalibrationReady = JsonUtility.FromJson<CalibrationReadyPayload>(message.payload);
+                    _remoteCalibrationReadyRequested = _pendingCalibrationReady != null;
+                }
+                catch
+                {
+                }
             }
         }
     }

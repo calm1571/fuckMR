@@ -133,7 +133,8 @@ namespace Project.MRWorld
                     hasPose = _hasPose,
                     isLocked = _isLocked,
                     stability01 = _stability01,
-                    pose = _smoothedMarkerWorldPose
+                    pose = _smoothedMarkerWorldPose,
+                    sourceMode = MarkerTrackingSourceMode.AutoAprilTag
                 };
                 return _hasPose;
             }

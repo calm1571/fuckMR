@@ -2229,7 +2229,7 @@ MonoBehaviour:
   combatBalanceConfig: {fileID: 11400000, guid: a58d7edb6021f034d80e03e492c83790,
     type: 2}
   hitCheckRadius: 0.25
-  enableSharedSpatialAnchor: 1
+  enableSharedSpatialAnchor: 0
   enableAutoAprilTagTracking: 1
   enableManualMarkerLock: 1
   aprilTagFamily: 36h11

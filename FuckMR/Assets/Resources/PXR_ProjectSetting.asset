@@ -22,17 +22,17 @@ MonoBehaviour:
   eyeTracking: 0
   eyetrackingCalibration: 0
   enableETFR: 0
-  foveationLevel: -1
+  foveationLevel: 0
   latelatching: 0
   latelatchingDebug: 0
   enableSubsampled: 0
   bodyTracking: 0
   adaptiveResolution: 0
-  stageMode: 1
-  videoSeeThrough: 1
-  spatialAnchor: 1
+  stageMode: 0
+  videoSeeThrough: 0
+  spatialAnchor: 0
   sceneCapture: 0
-  sharedAnchor: 1
+  sharedAnchor: 0
   spatialMesh: 0
   meshLod: 0
   superResolution: 0

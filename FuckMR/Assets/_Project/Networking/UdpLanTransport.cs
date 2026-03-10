@@ -239,6 +239,23 @@ namespace Project.Networking
             Send(message);
         }
 
+        public void SendCalibrationReady(CalibrationReadyPayload payload)
+        {
+            if (!_connected || payload == null)
+            {
+                return;
+            }
+
+            var message = new LanMessage
+            {
+                type = LanMessageTypes.CalibrationReady,
+                playerId = _localPlayerId,
+                payload = JsonUtility.ToJson(payload)
+            };
+
+            Send(message);
+        }
+
         public void Stop()
         {
             _role = NetworkRole.None;

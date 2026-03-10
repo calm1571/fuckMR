@@ -14,6 +14,7 @@ namespace Project.Core
         private readonly float _distance;
         private readonly float _verticalOffset;
         private readonly TMP_Text _statusText;
+        private readonly TMP_Text _detectionText;
 
         public CalibrationView(Transform cameraTransform, Action onConfirm, Action onBack, float distance, float verticalOffset)
         {
@@ -23,7 +24,7 @@ namespace Project.Core
             _root = new GameObject("CalibrationRoot");
 
             EnsureEventSystem();
-            _statusText = BuildCanvas(onConfirm, onBack);
+            BuildCanvas(onConfirm, onBack, out _statusText, out _detectionText);
             SetVisible(false);
         }
 
@@ -37,6 +38,14 @@ namespace Project.Core
             if (_statusText != null)
             {
                 _statusText.text = status;
+            }
+        }
+
+        public void SetDetectionStatus(string status)
+        {
+            if (_detectionText != null)
+            {
+                _detectionText.text = status;
             }
         }
 
@@ -57,7 +66,7 @@ namespace Project.Core
             _root.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
 
-        private TMP_Text BuildCanvas(Action onConfirm, Action onBack)
+        private void BuildCanvas(Action onConfirm, Action onBack, out TMP_Text statusText, out TMP_Text detectionText)
         {
             var canvasGo = new GameObject(
                 "CalibrationCanvas",
@@ -82,10 +91,10 @@ namespace Project.Core
 
             var panel = CreateImage("Panel", canvasRect, Vector2.zero, new Vector2(980f, 760f), new Color(0.06f, 0.11f, 0.15f, 0.78f));
             CreateTitle(panel, "Calibration");
-            var status = CreateBody(panel, "Right Stick: Move XZ\nLeft Stick: Rotate Y\nA/B: Height +/-");
+            statusText = CreateBody(panel, "Right Stick: Move XZ\nLeft Stick: Rotate Y\nA/B: Height +/-");
+            detectionText = CreateDetectionBlock(panel, "<color=#6CA9D9>Detection: Initializing...</color>");
             CreateButton(panel, "Confirm", new Vector2(0f, -210f), onConfirm);
             CreateButton(panel, "Back", new Vector2(0f, -350f), onBack);
-            return status;
         }
 
         private static RectTransform CreateImage(string name, RectTransform parent, Vector2 anchoredPos, Vector2 size, Color color)
@@ -134,8 +143,8 @@ namespace Project.Core
             rect.anchorMin = new Vector2(0.5f, 0.5f);
             rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = new Vector2(0f, 90f);
-            rect.sizeDelta = new Vector2(880f, 280f);
+            rect.anchoredPosition = new Vector2(0f, 135f);
+            rect.sizeDelta = new Vector2(880f, 220f);
 
             var label = go.GetComponent<TextMeshProUGUI>();
             var font = GetSafeFontAsset();
@@ -145,12 +154,42 @@ namespace Project.Core
             }
 
             label.text = text;
-            label.fontSize = 46f;
-            label.enableAutoSizing = true;
-            label.fontSizeMin = 28f;
-            label.fontSizeMax = 46f;
+            label.fontSize = 34f;
+            label.enableAutoSizing = false;
             label.color = new Color(0.9f, 0.95f, 1f, 1f);
             label.alignment = TextAlignmentOptions.Center;
+            label.enableWordWrapping = true;
+            label.overflowMode = TextOverflowModes.Ellipsis;
+            return label;
+        }
+
+        private static TMP_Text CreateDetectionBlock(RectTransform parent, string text)
+        {
+            var block = CreateImage("DetectionBlock", parent, new Vector2(0f, -50f), new Vector2(880f, 180f), new Color(0.03f, 0.06f, 0.09f, 0.92f));
+
+            var go = new GameObject("DetectionText", typeof(RectTransform), typeof(TextMeshProUGUI));
+            go.transform.SetParent(block, false);
+            var rect = go.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = new Vector2(24f, 18f);
+            rect.offsetMax = new Vector2(-24f, -18f);
+
+            var label = go.GetComponent<TextMeshProUGUI>();
+            var font = GetSafeFontAsset();
+            if (font != null)
+            {
+                label.font = font;
+            }
+
+            label.text = text;
+            label.fontSize = 32f;
+            label.enableAutoSizing = true;
+            label.fontSizeMin = 20f;
+            label.fontSizeMax = 32f;
+            label.color = new Color(0.85f, 0.93f, 1f, 1f);
+            label.alignment = TextAlignmentOptions.Center;
+            label.enableWordWrapping = true;
             return label;
         }
 

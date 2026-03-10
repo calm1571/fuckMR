@@ -114,7 +114,8 @@ namespace Project.MRWorld
                 hasPose = _hasPose,
                 isLocked = _isLocked,
                 stability01 = Mathf.Clamp01(_stability01),
-                pose = _smoothedPose
+                pose = _smoothedPose,
+                sourceMode = MarkerTrackingSourceMode.Manual
             };
             return _hasPose;
         }
