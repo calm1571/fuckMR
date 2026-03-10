@@ -69,6 +69,30 @@ crashlytics-build.properties
 ServerData/
 
 ########################################
+# OpenCV plugin pruning (Android only)
+########################################
+
+# Old package (replaced)
+FuckMR/Assets/OpenCV+Unity/
+
+# OpenCVForUnity optional/demo content
+FuckMR/Assets/OpenCVForUnity/Examples/
+FuckMR/Assets/OpenCVForUnity/StreamingAssets/OpenCVForUnity/
+
+# Keep Android libs, ignore other platform binaries
+FuckMR/Assets/OpenCVForUnity/Plugins/WebGL/
+FuckMR/Assets/OpenCVForUnity/Plugins/iOS/
+FuckMR/Assets/OpenCVForUnity/Plugins/macOS/
+FuckMR/Assets/OpenCVForUnity/Plugins/Windows/
+FuckMR/Assets/OpenCVForUnity/Plugins/Linux/
+FuckMR/Assets/OpenCVForUnity/Extra.unitypackage
+
+# Android: keep only arm64-v8a for PICO device builds
+FuckMR/Assets/OpenCVForUnity/Plugins/Android/libs/armeabi-v7a/
+FuckMR/Assets/OpenCVForUnity/Plugins/Android/libs/x86/
+FuckMR/Assets/OpenCVForUnity/Plugins/Android/libs/x86_64/
+
+########################################
 # Do NOT ignore these (important!)
 ########################################
 

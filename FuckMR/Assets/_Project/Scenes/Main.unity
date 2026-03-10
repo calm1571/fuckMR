@@ -2225,9 +2225,18 @@ MonoBehaviour:
   poseSendRate: 30
   worldRootSyncBurstCount: 5
   worldRootSyncBurstInterval: 0.12
+  calibrationSyncInterval: 0.08
   combatBalanceConfig: {fileID: 11400000, guid: a58d7edb6021f034d80e03e492c83790,
     type: 2}
   hitCheckRadius: 0.25
+  enableSharedSpatialAnchor: 1
+  enableAutoAprilTagTracking: 1
+  enableManualMarkerLock: 1
+  aprilTagFamily: 36h11
+  aprilTagId: 0
+  aprilTagSizeMm: 95
+  aprilTagFrameWidth: 640
+  aprilTagFrameHeight: 480
   hudDistance: 1.15
   hudLocalOffset: {x: 0, y: 0.28, z: 0}
 --- !u!4 &1968245071

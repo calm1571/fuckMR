@@ -28,6 +28,13 @@ namespace Project.Core
         [SerializeField] private CombatBalanceConfig combatBalanceConfig;
         [SerializeField] private float hitCheckRadius = 0.25f;
         [SerializeField] private bool enableSharedSpatialAnchor = true;
+        [SerializeField] private bool enableAutoAprilTagTracking = true;
+        [SerializeField] private bool enableManualMarkerLock = true;
+        [SerializeField] private string aprilTagFamily = "36h11";
+        [SerializeField] private int aprilTagId = 0;
+        [SerializeField] private float aprilTagSizeMm = 100f;
+        [SerializeField] private int aprilTagFrameWidth = 640;
+        [SerializeField] private int aprilTagFrameHeight = 480;
         [SerializeField] private float hudDistance = 1.15f;
         [SerializeField] private Vector3 hudLocalOffset = new Vector3(0f, 0.28f, 0f);
 
@@ -71,6 +78,9 @@ namespace Project.Core
         private float _localShootCooldownUntil;
         private string _resultText = "Result";
         private SpatialAnchorSyncService _spatialAnchorService;
+        private IMarkerTrackingSource _markerTrackingSource;
+        private MarkerTrackingSample _markerSample;
+        private bool _hasMarkerSample;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureBootstrapExists()
@@ -207,6 +217,23 @@ namespace Project.Core
             }
 
             _spatialAnchorService = new SpatialAnchorSyncService();
+            var manualMarkerSource = new ManualMarkerTrackingSource();
+            if (enableAutoAprilTagTracking)
+            {
+                var config = new AprilTagTrackingConfig(
+                    aprilTagFamily,
+                    aprilTagId,
+                    aprilTagSizeMm * 0.001f,
+                    aprilTagFrameWidth,
+                    aprilTagFrameHeight);
+                IAprilTagDetector detector = new OpenCVForUnityAprilTagDetector();
+                var autoMarkerSource = new AprilTagAutoTrackingSource(config, detector);
+                _markerTrackingSource = new AutoOrManualMarkerTrackingSource(autoMarkerSource, manualMarkerSource);
+            }
+            else
+            {
+                _markerTrackingSource = manualMarkerSource;
+            }
             UpdateEnemyHealthBar();
             _playerHudView?.SetStatus(GetMaxHp(), GetMaxHp(), 0f, 0f);
         }
@@ -351,6 +378,12 @@ namespace Project.Core
                 return;
             }
 
+            var existingManagers = FindObjectsOfType<PXR_Manager>(true);
+            if (existingManagers != null && existingManagers.Length > 0)
+            {
+                return;
+            }
+
             var target = mainCamera.transform.root != null ? mainCamera.transform.root.gameObject : mainCamera.gameObject;
             target.AddComponent<PXR_Manager>();
         }
@@ -458,6 +491,17 @@ namespace Project.Core
 
             if (_selectedRole == NetworkRole.Host)
             {
+                if (enableManualMarkerLock)
+                {
+                    if (!_hasMarkerSample || !_markerSample.hasPose || !_markerSample.isLocked)
+                    {
+                        _calibrationView?.SetStatus("Lock marker first (X). If wrong, unlock with Y.");
+                        return;
+                    }
+
+                    ApplyWorldRootFromMarkerPose(_markerSample.pose);
+                }
+
                 if (_networkCoordinator == null || !_networkCoordinator.IsConnected)
                 {
                     _calibrationView?.SetStatus("Client disconnected. Please reconnect.");
@@ -515,9 +559,11 @@ namespace Project.Core
         {
             _clientWorldRootLocked = false;
             _nextCalibrationSyncTime = 0f;
+            _hasMarkerSample = false;
             _projectileShooter?.SetShootingEnabled(false);
             _localShieldVisual?.Deactivate();
             _remoteShieldVisual?.Deactivate();
+            _markerTrackingSource?.Begin();
             if (_alwaysVisibleLaser != null)
             {
                 _alwaysVisibleLaser.enabled = true;
@@ -544,6 +590,7 @@ namespace Project.Core
         private void OnExitCalibration()
         {
             _calibrationView?.SetVisible(false);
+            _markerTrackingSource?.End();
             if (_worldRootMarker != null)
             {
                 _worldRootMarker.SetActive(false);
@@ -563,13 +610,31 @@ namespace Project.Core
                 _worldRootController?.Tick(Time.deltaTime);
             }
 
+            if (_markerTrackingSource != null)
+            {
+                _markerTrackingSource.Tick(Time.deltaTime);
+                _hasMarkerSample = _markerTrackingSource.TryGetSample(out _markerSample);
+            }
+
+            if (_selectedRole == NetworkRole.Host && enableManualMarkerLock && _hasMarkerSample && _markerSample.hasPose && _markerSample.isLocked)
+            {
+                ApplyWorldRootFromMarkerPose(_markerSample.pose);
+            }
+
             _calibrationView?.Tick();
             if (_worldRootController != null)
             {
                 var baseStatus = _worldRootController.BuildStatusText();
                 if (_selectedRole == NetworkRole.Host)
                 {
-                    _calibrationView?.SetStatus(baseStatus + "\nHost Confirm will broadcast WorldRoot.");
+                    if (enableManualMarkerLock && _markerTrackingSource != null)
+                    {
+                        _calibrationView?.SetStatus(baseStatus + "\n" + _markerTrackingSource.BuildDebugText() + "\nHost Confirm will broadcast WorldRoot.");
+                    }
+                    else
+                    {
+                        _calibrationView?.SetStatus(baseStatus + "\nHost Confirm will broadcast WorldRoot.");
+                    }
                 }
                 else if (_selectedRole == NetworkRole.Client)
                 {
@@ -591,6 +656,17 @@ namespace Project.Core
                 _networkCoordinator.NotifyHostWorldRootSync(_worldRootTransform.position, _worldRootTransform.rotation);
                 _nextCalibrationSyncTime = Time.unscaledTime + Mathf.Max(0.02f, calibrationSyncInterval);
             }
+        }
+
+        private void ApplyWorldRootFromMarkerPose(Pose markerPose)
+        {
+            if (_worldRootTransform == null)
+            {
+                return;
+            }
+
+            var yawOnly = Quaternion.Euler(0f, markerPose.rotation.eulerAngles.y, 0f);
+            _worldRootTransform.SetPositionAndRotation(markerPose.position, yawOnly);
         }
 
         private void OnRemoteWorldRootSyncReceived(WorldRootSyncPayload payload)
