@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Threading.Tasks;
 using Project.Gameplay.Combat;
 using Project.Gameplay.Input;
 using Project.MRWorld;
@@ -23,8 +24,10 @@ namespace Project.Core
         [SerializeField] private float poseSendRate = 30f;
         [SerializeField] private int worldRootSyncBurstCount = 5;
         [SerializeField] private float worldRootSyncBurstInterval = 0.12f;
+        [SerializeField] private float calibrationSyncInterval = 0.08f;
         [SerializeField] private CombatBalanceConfig combatBalanceConfig;
         [SerializeField] private float hitCheckRadius = 0.25f;
+        [SerializeField] private bool enableSharedSpatialAnchor = true;
         [SerializeField] private float hudDistance = 1.15f;
         [SerializeField] private Vector3 hudLocalOffset = new Vector3(0f, 0.28f, 0f);
 
@@ -49,6 +52,9 @@ namespace Project.Core
         private Transform _worldRootTransform;
         private bool _clientWorldRootLocked;
         private Coroutine _worldRootSyncRoutine;
+        private Coroutine _sharedAnchorPublishRoutine;
+        private Coroutine _sharedAnchorResolveRoutine;
+        private float _nextCalibrationSyncTime;
         private ActionBasedController _leftActionController;
         private ActionBasedController _rightActionController;
         private M5ShieldVisual _localShieldVisual;
@@ -64,6 +70,7 @@ namespace Project.Core
         private float _clientNextShootAllowedTime;
         private float _localShootCooldownUntil;
         private string _resultText = "Result";
+        private SpatialAnchorSyncService _spatialAnchorService;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureBootstrapExists()
@@ -190,6 +197,8 @@ namespace Project.Core
             _networkCoordinator.RemoteShieldReceived += OnRemoteShieldReceived;
             _networkCoordinator.HpUpdateReceived += OnHpUpdateReceived;
             _networkCoordinator.MatchResultReceived += OnMatchResultReceived;
+            _networkCoordinator.SharedAnchorReceived += OnSharedAnchorReceived;
+            _networkCoordinator.StartPlayingRequested += OnStartPlayingRequested;
 
             _remoteProxy = gameObject.GetComponent<M3RemotePlayerProxy>();
             if (_remoteProxy == null)
@@ -197,6 +206,7 @@ namespace Project.Core
                 _remoteProxy = gameObject.AddComponent<M3RemotePlayerProxy>();
             }
 
+            _spatialAnchorService = new SpatialAnchorSyncService();
             UpdateEnemyHealthBar();
             _playerHudView?.SetStatus(GetMaxHp(), GetMaxHp(), 0f, 0f);
         }
@@ -218,6 +228,18 @@ namespace Project.Core
 
         private void OnDestroy()
         {
+            if (_sharedAnchorPublishRoutine != null)
+            {
+                StopCoroutine(_sharedAnchorPublishRoutine);
+                _sharedAnchorPublishRoutine = null;
+            }
+
+            if (_sharedAnchorResolveRoutine != null)
+            {
+                StopCoroutine(_sharedAnchorResolveRoutine);
+                _sharedAnchorResolveRoutine = null;
+            }
+
             if (_projectileShooter != null)
             {
                 _projectileShooter.ShotFired -= OnLocalShotFired;
@@ -236,6 +258,8 @@ namespace Project.Core
                 _networkCoordinator.RemoteShieldReceived -= OnRemoteShieldReceived;
                 _networkCoordinator.HpUpdateReceived -= OnHpUpdateReceived;
                 _networkCoordinator.MatchResultReceived -= OnMatchResultReceived;
+                _networkCoordinator.SharedAnchorReceived -= OnSharedAnchorReceived;
+                _networkCoordinator.StartPlayingRequested -= OnStartPlayingRequested;
                 _networkCoordinator.Stop();
             }
         }
@@ -345,6 +369,10 @@ namespace Project.Core
         {
             _selectedRole = NetworkRole.Host;
             _networkCoordinator?.StartHost();
+            if (enableSharedSpatialAnchor)
+            {
+                StartCoroutine(WarmupSpatialAnchorProviderRoutine());
+            }
             _stateMachine?.ChangeState(AppStateId.LobbyHost);
         }
 
@@ -352,6 +380,10 @@ namespace Project.Core
         {
             _selectedRole = NetworkRole.Client;
             _networkCoordinator?.StartClient(hostIpForClient);
+            if (enableSharedSpatialAnchor)
+            {
+                StartCoroutine(WarmupSpatialAnchorProviderRoutine());
+            }
             _stateMachine?.ChangeState(AppStateId.LobbyClient);
         }
 
@@ -360,6 +392,17 @@ namespace Project.Core
             _networkCoordinator?.Stop();
             _selectedRole = NetworkRole.None;
             _clientWorldRootLocked = false;
+            if (_sharedAnchorPublishRoutine != null)
+            {
+                StopCoroutine(_sharedAnchorPublishRoutine);
+                _sharedAnchorPublishRoutine = null;
+            }
+
+            if (_sharedAnchorResolveRoutine != null)
+            {
+                StopCoroutine(_sharedAnchorResolveRoutine);
+                _sharedAnchorResolveRoutine = null;
+            }
             _stateMachine?.ChangeState(AppStateId.RoleSelect);
         }
 
@@ -429,7 +472,23 @@ namespace Project.Core
                     }
 
                     _worldRootSyncRoutine = StartCoroutine(BroadcastWorldRootSyncBurst());
+                    _networkCoordinator.NotifyHostWorldRootSync(_worldRootTransform.position, _worldRootTransform.rotation);
                 }
+
+                if (enableSharedSpatialAnchor)
+                {
+                    if (_sharedAnchorPublishRoutine != null)
+                    {
+                        StopCoroutine(_sharedAnchorPublishRoutine);
+                    }
+
+                    _sharedAnchorPublishRoutine = StartCoroutine(PublishSharedAnchorRoutine());
+                }
+            }
+
+            if (_selectedRole == NetworkRole.Host)
+            {
+                _networkCoordinator?.NotifyHostStartPlaying();
             }
 
             _stateMachine?.ChangeState(AppStateId.Playing);
@@ -455,6 +514,7 @@ namespace Project.Core
         private void OnEnterCalibration()
         {
             _clientWorldRootLocked = false;
+            _nextCalibrationSyncTime = 0f;
             _projectileShooter?.SetShootingEnabled(false);
             _localShieldVisual?.Deactivate();
             _remoteShieldVisual?.Deactivate();
@@ -521,6 +581,16 @@ namespace Project.Core
                     _calibrationView?.SetStatus(baseStatus);
                 }
             }
+
+            if (_selectedRole == NetworkRole.Host &&
+                _networkCoordinator != null &&
+                _networkCoordinator.IsConnected &&
+                _worldRootTransform != null &&
+                Time.unscaledTime >= _nextCalibrationSyncTime)
+            {
+                _networkCoordinator.NotifyHostWorldRootSync(_worldRootTransform.position, _worldRootTransform.rotation);
+                _nextCalibrationSyncTime = Time.unscaledTime + Mathf.Max(0.02f, calibrationSyncInterval);
+            }
         }
 
         private void OnRemoteWorldRootSyncReceived(WorldRootSyncPayload payload)
@@ -536,11 +606,34 @@ namespace Project.Core
                 _clientWorldRootLocked = true;
                 Debug.Log($"M4: Client applied WorldRoot sync: pos={payload.position}, rotY={payload.rotation.eulerAngles.y:F1}");
             }
+        }
 
-            if (_stateMachine != null && _stateMachine.CurrentId == AppStateId.Calibration)
+        private void OnStartPlayingRequested()
+        {
+            if (_selectedRole != NetworkRole.Client || _stateMachine == null)
+            {
+                return;
+            }
+
+            if (_stateMachine.CurrentId == AppStateId.Calibration || _stateMachine.CurrentId == AppStateId.LobbyClient)
             {
                 _stateMachine.ChangeState(AppStateId.Playing);
             }
+        }
+
+        private void OnSharedAnchorReceived(SharedAnchorPayload payload)
+        {
+            if (!enableSharedSpatialAnchor || _selectedRole != NetworkRole.Client || payload == null || string.IsNullOrEmpty(payload.uuid))
+            {
+                return;
+            }
+
+            if (_sharedAnchorResolveRoutine != null)
+            {
+                StopCoroutine(_sharedAnchorResolveRoutine);
+            }
+
+            _sharedAnchorResolveRoutine = StartCoroutine(ResolveSharedAnchorRoutine(payload.uuid));
         }
 
         private void OnLocalShotFired(M1ProjectileShooter.ShotInfo shot)
@@ -620,6 +713,83 @@ namespace Project.Core
             }
 
             _worldRootSyncRoutine = null;
+        }
+
+        private IEnumerator WarmupSpatialAnchorProviderRoutine()
+        {
+            if (_spatialAnchorService == null)
+            {
+                yield break;
+            }
+
+            var task = _spatialAnchorService.EnsureProviderReadyAsync();
+            yield return WaitTask(task);
+            if (!task.IsFaulted && !task.IsCanceled && task.Result)
+            {
+                Debug.Log("SpatialAnchor: Provider ready");
+            }
+            else
+            {
+                Debug.LogWarning("SpatialAnchor: Provider warmup failed, fallback to worldRoot sync");
+            }
+        }
+
+        private IEnumerator PublishSharedAnchorRoutine()
+        {
+            if (_spatialAnchorService == null || _networkCoordinator == null || _worldRootTransform == null)
+            {
+                yield break;
+            }
+
+            var task = _spatialAnchorService.CreateOrReuseSharedAnchorAsync(_worldRootTransform.position, _worldRootTransform.rotation);
+            yield return WaitTask(task);
+            _sharedAnchorPublishRoutine = null;
+
+            if (task.IsFaulted || task.IsCanceled || !task.Result.ok)
+            {
+                Debug.LogWarning("SpatialAnchor: Host publish failed, using manual worldRoot sync only");
+                yield break;
+            }
+
+            _networkCoordinator.NotifyHostSharedAnchor(task.Result.uuid);
+            Debug.Log($"SpatialAnchor: Host shared uuid={task.Result.uuid}");
+        }
+
+        private IEnumerator ResolveSharedAnchorRoutine(string uuid)
+        {
+            if (_spatialAnchorService == null || _worldRootTransform == null)
+            {
+                yield break;
+            }
+
+            _calibrationView?.SetStatus("Downloading shared anchor...");
+            var task = _spatialAnchorService.DownloadAndLocateSharedAnchorAsync(uuid);
+            yield return WaitTask(task);
+            _sharedAnchorResolveRoutine = null;
+
+            if (task.IsFaulted || task.IsCanceled || !task.Result.ok)
+            {
+                Debug.LogWarning("SpatialAnchor: Client resolve failed, fallback to manual worldRoot sync");
+                yield break;
+            }
+
+            _worldRootTransform.SetPositionAndRotation(task.Result.position, task.Result.rotation);
+            _clientWorldRootLocked = true;
+            _calibrationView?.SetStatus("Shared anchor applied.");
+            Debug.Log($"SpatialAnchor: Client applied uuid={uuid}");
+        }
+
+        private static IEnumerator WaitTask(Task task)
+        {
+            if (task == null)
+            {
+                yield break;
+            }
+
+            while (!task.IsCompleted)
+            {
+                yield return null;
+            }
         }
 
         private void OnEnterPlaying()
@@ -1150,39 +1320,77 @@ namespace Project.Core
             var existing = worldRoot.Find("WorldRootMarker");
             if (existing != null)
             {
-                return existing.gameObject;
+                // Upgrade old cube marker to the new arrow marker.
+                if (existing.Find("ArrowBody") != null && existing.Find("ArrowTip") != null)
+                {
+                    return existing.gameObject;
+                }
+
+                Destroy(existing.gameObject);
             }
 
-            var marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            marker.name = "WorldRootMarker";
+            var marker = new GameObject("WorldRootMarker");
             marker.transform.SetParent(worldRoot, false);
             marker.transform.localPosition = new Vector3(0f, 0f, 1.2f);
-            marker.transform.localScale = new Vector3(0.28f, 0.14f, 0.28f);
+            marker.transform.localRotation = Quaternion.identity;
+            marker.transform.localScale = Vector3.one;
 
-            var collider = marker.GetComponent<Collider>();
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null)
+            {
+                shader = Shader.Find("Unlit/Color");
+            }
+
+            Material mat = null;
+            if (shader != null)
+            {
+                mat = new Material(shader);
+                mat.color = new Color(0.95f, 0.55f, 0.1f, 1f);
+            }
+
+            var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            basePlate.name = "BasePlate";
+            basePlate.transform.SetParent(marker.transform, false);
+            basePlate.transform.localPosition = new Vector3(0f, 0.03f, 0f);
+            basePlate.transform.localScale = new Vector3(0.22f, 0.06f, 0.22f);
+
+            var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            body.name = "ArrowBody";
+            body.transform.SetParent(marker.transform, false);
+            body.transform.localPosition = new Vector3(0f, 0.09f, 0.10f);
+            body.transform.localScale = new Vector3(0.06f, 0.045f, 0.22f);
+
+            var tip = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            tip.name = "ArrowTip";
+            tip.transform.SetParent(marker.transform, false);
+            tip.transform.localPosition = new Vector3(0f, 0.09f, 0.24f);
+            tip.transform.localScale = new Vector3(0.12f, 0.045f, 0.08f);
+
+            ApplyMarkerPartStyle(basePlate, mat);
+            ApplyMarkerPartStyle(body, mat);
+            ApplyMarkerPartStyle(tip, mat);
+
+            return marker;
+        }
+
+        private static void ApplyMarkerPartStyle(GameObject part, Material mat)
+        {
+            if (part == null)
+            {
+                return;
+            }
+
+            var collider = part.GetComponent<Collider>();
             if (collider != null)
             {
                 collider.enabled = false;
             }
 
-            var renderer = marker.GetComponent<Renderer>();
-            if (renderer != null)
+            var renderer = part.GetComponent<Renderer>();
+            if (renderer != null && mat != null)
             {
-                var shader = Shader.Find("Universal Render Pipeline/Unlit");
-                if (shader == null)
-                {
-                    shader = Shader.Find("Unlit/Color");
-                }
-
-                if (shader != null)
-                {
-                    var mat = new Material(shader);
-                    mat.color = new Color(0.95f, 0.55f, 0.1f, 1f);
-                    renderer.material = mat;
-                }
+                renderer.material = mat;
             }
-
-            return marker;
         }
 
         private static Gradient BuildCyanGradient()

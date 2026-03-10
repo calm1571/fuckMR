@@ -21,11 +21,14 @@ namespace Project.Networking
         private bool _remoteShieldRequested;
         private bool _remoteHpUpdateRequested;
         private bool _remoteMatchResultRequested;
+        private bool _remoteSharedAnchorRequested;
+        private bool _remoteStartPlayingRequested;
         private WorldRootSyncPayload _pendingWorldRootSync;
         private ShootPayload _pendingShoot;
         private ShieldPayload _pendingShield;
         private HpUpdatePayload _pendingHpUpdate;
         private MatchResultPayload _pendingMatchResult;
+        private SharedAnchorPayload _pendingSharedAnchor;
 
         private Transform _head;
         private Transform _leftHand;
@@ -37,6 +40,8 @@ namespace Project.Networking
         public event Action<ShieldPayload> RemoteShieldReceived;
         public event Action<HpUpdatePayload> HpUpdateReceived;
         public event Action<MatchResultPayload> MatchResultReceived;
+        public event Action<SharedAnchorPayload> SharedAnchorReceived;
+        public event Action StartPlayingRequested;
 
         public NetworkRole Role { get; private set; } = NetworkRole.None;
         public bool IsConnected => _transport.IsConnected;
@@ -75,6 +80,9 @@ namespace Project.Networking
             _pendingHpUpdate = null;
             _remoteMatchResultRequested = false;
             _pendingMatchResult = null;
+            _remoteSharedAnchorRequested = false;
+            _pendingSharedAnchor = null;
+            _remoteStartPlayingRequested = false;
         }
 
         public void StartClient(string hostIp = null)
@@ -93,6 +101,9 @@ namespace Project.Networking
             _pendingHpUpdate = null;
             _remoteMatchResultRequested = false;
             _pendingMatchResult = null;
+            _remoteSharedAnchorRequested = false;
+            _pendingSharedAnchor = null;
+            _remoteStartPlayingRequested = false;
         }
 
         public void Stop()
@@ -111,6 +122,9 @@ namespace Project.Networking
             _pendingHpUpdate = null;
             _remoteMatchResultRequested = false;
             _pendingMatchResult = null;
+            _remoteSharedAnchorRequested = false;
+            _pendingSharedAnchor = null;
+            _remoteStartPlayingRequested = false;
         }
 
         public void Tick(float unscaledTime)
@@ -166,6 +180,21 @@ namespace Project.Networking
                 {
                     MatchResultReceived?.Invoke(_pendingMatchResult);
                 }
+            }
+
+            if (_remoteSharedAnchorRequested)
+            {
+                _remoteSharedAnchorRequested = false;
+                if (_pendingSharedAnchor != null)
+                {
+                    SharedAnchorReceived?.Invoke(_pendingSharedAnchor);
+                }
+            }
+
+            if (_remoteStartPlayingRequested)
+            {
+                _remoteStartPlayingRequested = false;
+                StartPlayingRequested?.Invoke();
             }
 
             if (!IsConnected || _head == null)
@@ -265,6 +294,30 @@ namespace Project.Networking
                 winnerRole = winnerRole
             };
             _transport.SendMatchResult(payload);
+        }
+
+        public void NotifyHostSharedAnchor(string uuid)
+        {
+            if (Role != NetworkRole.Host || !_transport.IsConnected || string.IsNullOrEmpty(uuid))
+            {
+                return;
+            }
+
+            var payload = new SharedAnchorPayload
+            {
+                uuid = uuid
+            };
+            _transport.SendSharedAnchor(payload);
+        }
+
+        public void NotifyHostStartPlaying()
+        {
+            if (Role != NetworkRole.Host || !_transport.IsConnected)
+            {
+                return;
+            }
+
+            _transport.SendStartPlaying();
         }
 
         public string BuildLobbyStatus()
@@ -391,6 +444,21 @@ namespace Project.Networking
                 catch
                 {
                 }
+            }
+            else if (message.type == LanMessageTypes.SharedAnchor && !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingSharedAnchor = JsonUtility.FromJson<SharedAnchorPayload>(message.payload);
+                    _remoteSharedAnchorRequested = _pendingSharedAnchor != null && !string.IsNullOrEmpty(_pendingSharedAnchor.uuid);
+                }
+                catch
+                {
+                }
+            }
+            else if (message.type == LanMessageTypes.StartPlaying && Role == NetworkRole.Client)
+            {
+                _remoteStartPlayingRequested = true;
             }
         }
     }

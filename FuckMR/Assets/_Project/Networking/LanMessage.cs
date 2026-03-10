@@ -57,6 +57,12 @@ namespace Project.Networking
     }
 
     [Serializable]
+    public sealed class SharedAnchorPayload
+    {
+        public string uuid;
+    }
+
+    [Serializable]
     public struct PoseData
     {
         public Vector3 position;
@@ -74,5 +80,7 @@ namespace Project.Networking
         public const string Shield = "SHIELD";
         public const string HpUpdate = "HP_UPDATE";
         public const string MatchResult = "MATCH_RESULT";
+        public const string SharedAnchor = "SHARED_ANCHOR";
+        public const string StartPlaying = "START_PLAYING";
     }
 }

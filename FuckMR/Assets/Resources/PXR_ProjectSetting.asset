@@ -32,7 +32,7 @@ MonoBehaviour:
   videoSeeThrough: 1
   spatialAnchor: 1
   sceneCapture: 0
-  sharedAnchor: 0
+  sharedAnchor: 1
   spatialMesh: 0
   meshLod: 0
   superResolution: 0

@@ -205,6 +205,40 @@ namespace Project.Networking
             Send(message);
         }
 
+        public void SendSharedAnchor(SharedAnchorPayload payload)
+        {
+            if (!_connected || payload == null || string.IsNullOrEmpty(payload.uuid))
+            {
+                return;
+            }
+
+            var message = new LanMessage
+            {
+                type = LanMessageTypes.SharedAnchor,
+                playerId = _localPlayerId,
+                payload = JsonUtility.ToJson(payload)
+            };
+
+            Send(message);
+        }
+
+        public void SendStartPlaying()
+        {
+            if (!_connected)
+            {
+                return;
+            }
+
+            var message = new LanMessage
+            {
+                type = LanMessageTypes.StartPlaying,
+                playerId = _localPlayerId,
+                payload = string.Empty
+            };
+
+            Send(message);
+        }
+
         public void Stop()
         {
             _role = NetworkRole.None;
