@@ -5,9 +5,13 @@ namespace Project.Gameplay.Combat
 {
     public sealed class M3RemotePlayerProxy : MonoBehaviour
     {
+        private Transform _alignmentRoot;
         private Transform _head;
         private Transform _leftHand;
         private Transform _rightHand;
+        private Transform _headForwardMarkerRoot;
+        private Transform _leftHandLabelRoot;
+        private Transform _rightHandLabelRoot;
         private Transform _hpBarRoot;
         private Transform _hpBarBackground;
         private Transform _hpBarForeground;
@@ -20,15 +24,28 @@ namespace Project.Gameplay.Combat
         private const float HpBarDepth = 0.012f;
         private const float HpBarYOffset = 0.20f;
         private const float HpBarFrontOffsetLocal = 0.52f;
+        private const float HeadMarkerFrontOffset = 0.17f;
 
         public Transform HeadTransform => _head;
         public Transform LeftHandTransform => _leftHand;
         public Transform RightHandTransform => _rightHand;
 
+        private void LateUpdate()
+        {
+            UpdateHeadForwardMarkerTransform();
+            UpdateHpBarTransform();
+            UpdateHandLabelTransforms();
+        }
+
         private void Awake()
         {
             EnsureProxyObjects();
             SetVisible(false);
+        }
+
+        public void BindAlignmentRoot(Transform alignmentRoot)
+        {
+            _alignmentRoot = alignmentRoot;
         }
 
         public void ApplyPose(PosePayload pose)
@@ -39,10 +56,11 @@ namespace Project.Gameplay.Combat
             }
 
             EnsureProxyObjects();
-            Apply(_head, pose.head);
-            Apply(_leftHand, pose.leftHand);
-            Apply(_rightHand, pose.rightHand);
-            UpdateHpBarTransform();
+            Apply(_head, pose.head, _alignmentRoot);
+            Apply(_leftHand, pose.leftHand, _alignmentRoot);
+            Apply(_rightHand, pose.rightHand, _alignmentRoot);
+            UpdateHeadForwardMarkerTransform();
+            UpdateHandLabelTransforms();
             SetVisible(true);
         }
 
@@ -69,6 +87,9 @@ namespace Project.Gameplay.Combat
             _head = CreatePart("RemoteHead", PrimitiveType.Sphere, new Vector3(0.20f, 0.20f, 0.20f), new Color(0.2f, 1f, 0.45f, 0.95f));
             _leftHand = CreatePart("RemoteLeftHand", PrimitiveType.Cube, new Vector3(0.08f, 0.08f, 0.08f), new Color(0.1f, 0.78f, 1f, 0.95f));
             _rightHand = CreatePart("RemoteRightHand", PrimitiveType.Cube, new Vector3(0.08f, 0.08f, 0.08f), new Color(0.1f, 0.78f, 1f, 0.95f));
+            CreateHeadForwardMarker();
+            _leftHandLabelRoot = CreateHandLabel(_leftHand, "L", new Color(0.95f, 0.96f, 1f, 1f));
+            _rightHandLabelRoot = CreateHandLabel(_rightHand, "R", new Color(0.95f, 0.96f, 1f, 1f));
             CreateHpBar();
             SetEnemyHealthNormalized(_lastHealth01);
             _initialized = true;
@@ -179,14 +200,135 @@ namespace Project.Gameplay.Combat
             return go.transform;
         }
 
-        private static void Apply(Transform target, PoseData pose)
+        private void CreateHeadForwardMarker()
+        {
+            if (_head == null)
+            {
+                return;
+            }
+
+            _headForwardMarkerRoot = new GameObject("HeadForwardMarkerRoot").transform;
+            _headForwardMarkerRoot.SetParent(transform, false);
+            _headForwardMarkerRoot.localScale = Vector3.one;
+
+            CreateMarkerBar("HeadForwardPlusBgVertical", _headForwardMarkerRoot, Vector3.zero, new Vector3(0.032f, 0.126f, 0.014f), new Color(0f, 0f, 0f, 0.98f));
+            CreateMarkerBar("HeadForwardPlusBgHorizontal", _headForwardMarkerRoot, Vector3.zero, new Vector3(0.126f, 0.032f, 0.014f), new Color(0f, 0f, 0f, 0.98f));
+            CreateMarkerBar("HeadForwardPlusVertical", _headForwardMarkerRoot, new Vector3(0f, 0f, 0.002f), new Vector3(0.016f, 0.094f, 0.012f), new Color(1f, 1f, 1f, 0.99f));
+            CreateMarkerBar("HeadForwardPlusHorizontal", _headForwardMarkerRoot, new Vector3(0f, 0f, 0.002f), new Vector3(0.094f, 0.016f, 0.012f), new Color(1f, 1f, 1f, 0.99f));
+            UpdateHeadForwardMarkerTransform();
+        }
+
+        private static void CreateMarkerBar(string name, Transform parent, Vector3 localPosition, Vector3 localScale, Color color)
+        {
+            var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            bar.name = name;
+            bar.transform.SetParent(parent, false);
+            bar.transform.localPosition = localPosition;
+            bar.transform.localRotation = Quaternion.identity;
+            bar.transform.localScale = localScale;
+
+            var collider = bar.GetComponent<Collider>();
+            if (collider != null)
+            {
+                collider.enabled = false;
+            }
+
+            var renderer = bar.GetComponent<Renderer>();
+            if (renderer == null)
+            {
+                return;
+            }
+
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null)
+            {
+                shader = Shader.Find("Unlit/Color");
+            }
+
+            if (shader == null)
+            {
+                return;
+            }
+
+            var material = new Material(shader);
+            material.color = color;
+            renderer.material = material;
+        }
+
+        private static Transform CreateHandLabel(Transform hand, string label, Color color)
+        {
+            if (hand == null)
+            {
+                return null;
+            }
+
+            var labelRoot = new GameObject(hand.name + "Label");
+            labelRoot.transform.SetParent(hand.root != null ? hand.root : hand, false);
+            labelRoot.transform.position = hand.position + Vector3.up * 0.10f;
+            labelRoot.transform.rotation = Quaternion.identity;
+            labelRoot.transform.localScale = Vector3.one * 0.045f;
+
+            var textMesh = labelRoot.AddComponent<TextMesh>();
+            textMesh.text = label;
+            textMesh.fontSize = 120;
+            textMesh.characterSize = 0.55f;
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.color = color;
+            textMesh.fontStyle = FontStyle.Bold;
+            return labelRoot.transform;
+        }
+
+        private void UpdateHandLabelTransforms()
+        {
+            UpdateHandLabelTransform(_leftHand, _leftHandLabelRoot);
+            UpdateHandLabelTransform(_rightHand, _rightHandLabelRoot);
+        }
+
+        private void UpdateHeadForwardMarkerTransform()
+        {
+            if (_head == null || _headForwardMarkerRoot == null)
+            {
+                return;
+            }
+
+            _headForwardMarkerRoot.position = _head.position + _head.forward * HeadMarkerFrontOffset;
+            _headForwardMarkerRoot.rotation = _head.rotation;
+        }
+
+        private static void UpdateHandLabelTransform(Transform hand, Transform labelRoot)
+        {
+            if (hand == null || labelRoot == null || Camera.main == null)
+            {
+                return;
+            }
+
+            labelRoot.position = hand.position + Vector3.up * 0.10f;
+            var toCam = Camera.main.transform.position - labelRoot.position;
+            if (toCam.sqrMagnitude < 0.0001f)
+            {
+                return;
+            }
+
+            labelRoot.rotation = Quaternion.LookRotation(toCam.normalized, Vector3.up);
+        }
+
+        private void Apply(Transform target, PoseData pose, Transform alignmentRoot)
         {
             if (target == null)
             {
                 return;
             }
 
-            target.SetPositionAndRotation(pose.position, pose.rotation);
+            var position = pose.position;
+            var rotation = pose.rotation;
+            if (alignmentRoot != null)
+            {
+                position = alignmentRoot.TransformPoint(position);
+                rotation = alignmentRoot.rotation * rotation;
+            }
+
+            target.SetPositionAndRotation(position, rotation);
         }
 
         private void UpdateHpBarTransform()
@@ -221,6 +363,21 @@ namespace Project.Gameplay.Combat
             if (_rightHand != null)
             {
                 _rightHand.gameObject.SetActive(visible);
+            }
+
+            if (_leftHandLabelRoot != null)
+            {
+                _leftHandLabelRoot.gameObject.SetActive(visible);
+            }
+
+            if (_rightHandLabelRoot != null)
+            {
+                _rightHandLabelRoot.gameObject.SetActive(visible);
+            }
+
+            if (_headForwardMarkerRoot != null)
+            {
+                _headForwardMarkerRoot.gameObject.SetActive(visible);
             }
 
             if (_hpBarRoot != null)

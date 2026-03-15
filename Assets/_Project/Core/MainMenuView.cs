@@ -9,6 +9,7 @@ namespace Project.Core
 {
     public sealed class MainMenuView
     {
+        private const string BuildStamp = "BUILD: MR-RESULT-RETRY-V5";
         private readonly GameObject _root;
         private readonly Transform _cameraTransform;
         private readonly float _distance;
@@ -73,6 +74,7 @@ namespace Project.Core
             canvasRect.localScale = Vector3.one * 0.0012f;
 
             var panel = CreateImage("Panel", canvasRect, new Vector2(0f, 0f), new Vector2(940f, 700f), new Color(0.08f, 0.1f, 0.12f, 0.76f));
+            CreateBuildStamp(panel, BuildStamp);
             CreateButton(panel, "Start Game", new Vector2(0f, 135f), onStart);
             CreateButton(panel, "Quit", new Vector2(0f, -135f), onExit);
         }
@@ -140,6 +142,30 @@ namespace Project.Core
             label.alignment = TextAlignmentOptions.Center;
             label.color = Color.white;
             label.overflowMode = TextOverflowModes.Ellipsis;
+        }
+
+        private static void CreateBuildStamp(RectTransform parent, string text)
+        {
+            var go = new GameObject("BuildStamp", typeof(RectTransform), typeof(TextMeshProUGUI));
+            go.transform.SetParent(parent, false);
+            var rect = go.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0f);
+            rect.anchorMax = new Vector2(0.5f, 0f);
+            rect.pivot = new Vector2(0.5f, 0f);
+            rect.anchoredPosition = new Vector2(0f, 34f);
+            rect.sizeDelta = new Vector2(860f, 56f);
+
+            var label = go.GetComponent<TextMeshProUGUI>();
+            var font = GetSafeFontAsset();
+            if (font != null)
+            {
+                label.font = font;
+            }
+
+            label.text = text;
+            label.fontSize = 26f;
+            label.color = new Color(0.72f, 0.83f, 0.92f, 0.95f);
+            label.alignment = TextAlignmentOptions.Center;
         }
 
         private static TMP_FontAsset GetSafeFontAsset()

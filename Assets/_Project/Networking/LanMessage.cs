@@ -72,6 +72,22 @@ namespace Project.Networking
     }
 
     [Serializable]
+    public sealed class RemoteAlignmentPayload
+    {
+        public Vector3 position;
+        public Quaternion rotation;
+        public string senderRole;
+        public string stage;
+        public bool confirmed;
+    }
+
+    [Serializable]
+    public sealed class RematchReadyPayload
+    {
+        public bool ready;
+    }
+
+    [Serializable]
     public struct PoseData
     {
         public Vector3 position;
@@ -92,5 +108,7 @@ namespace Project.Networking
         public const string SharedAnchor = "SHARED_ANCHOR";
         public const string StartPlaying = "START_PLAYING";
         public const string CalibrationReady = "CALIBRATION_READY";
+        public const string RemoteAlignment = "REMOTE_ALIGNMENT";
+        public const string RematchReady = "REMATCH_READY";
     }
 }

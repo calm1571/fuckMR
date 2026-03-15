@@ -24,6 +24,8 @@ namespace Project.Networking
         private bool _remoteSharedAnchorRequested;
         private bool _remoteStartPlayingRequested;
         private bool _remoteCalibrationReadyRequested;
+        private bool _remoteAlignmentRequested;
+        private bool _remoteRematchReadyRequested;
         private WorldRootSyncPayload _pendingWorldRootSync;
         private ShootPayload _pendingShoot;
         private ShieldPayload _pendingShield;
@@ -31,6 +33,8 @@ namespace Project.Networking
         private MatchResultPayload _pendingMatchResult;
         private SharedAnchorPayload _pendingSharedAnchor;
         private CalibrationReadyPayload _pendingCalibrationReady;
+        private RemoteAlignmentPayload _pendingRemoteAlignment;
+        private RematchReadyPayload _pendingRematchReady;
 
         private Transform _head;
         private Transform _leftHand;
@@ -45,6 +49,8 @@ namespace Project.Networking
         public event Action<SharedAnchorPayload> SharedAnchorReceived;
         public event Action StartPlayingRequested;
         public event Action<CalibrationReadyPayload> RemoteCalibrationReadyReceived;
+        public event Action<RemoteAlignmentPayload> RemoteAlignmentReceived;
+        public event Action<RematchReadyPayload> RemoteRematchReadyReceived;
 
         public NetworkRole Role { get; private set; } = NetworkRole.None;
         public bool IsConnected => _transport.IsConnected;
@@ -88,6 +94,10 @@ namespace Project.Networking
             _remoteStartPlayingRequested = false;
             _remoteCalibrationReadyRequested = false;
             _pendingCalibrationReady = null;
+            _remoteAlignmentRequested = false;
+            _pendingRemoteAlignment = null;
+            _remoteRematchReadyRequested = false;
+            _pendingRematchReady = null;
         }
 
         public void StartClient(string hostIp = null)
@@ -111,6 +121,10 @@ namespace Project.Networking
             _remoteStartPlayingRequested = false;
             _remoteCalibrationReadyRequested = false;
             _pendingCalibrationReady = null;
+            _remoteAlignmentRequested = false;
+            _pendingRemoteAlignment = null;
+            _remoteRematchReadyRequested = false;
+            _pendingRematchReady = null;
         }
 
         public void Stop()
@@ -134,6 +148,10 @@ namespace Project.Networking
             _remoteStartPlayingRequested = false;
             _remoteCalibrationReadyRequested = false;
             _pendingCalibrationReady = null;
+            _remoteAlignmentRequested = false;
+            _pendingRemoteAlignment = null;
+            _remoteRematchReadyRequested = false;
+            _pendingRematchReady = null;
         }
 
         public void Tick(float unscaledTime)
@@ -212,6 +230,24 @@ namespace Project.Networking
                 if (_pendingCalibrationReady != null)
                 {
                     RemoteCalibrationReadyReceived?.Invoke(_pendingCalibrationReady);
+                }
+            }
+
+            if (_remoteAlignmentRequested)
+            {
+                _remoteAlignmentRequested = false;
+                if (_pendingRemoteAlignment != null)
+                {
+                    RemoteAlignmentReceived?.Invoke(_pendingRemoteAlignment);
+                }
+            }
+
+            if (_remoteRematchReadyRequested)
+            {
+                _remoteRematchReadyRequested = false;
+                if (_pendingRematchReady != null)
+                {
+                    RemoteRematchReadyReceived?.Invoke(_pendingRematchReady);
                 }
             }
 
@@ -354,6 +390,40 @@ namespace Project.Networking
             };
 
             _transport.SendCalibrationReady(payload);
+        }
+
+        public void NotifyRemoteAlignment(Vector3 position, Quaternion rotation, bool confirmed, string stage)
+        {
+            if (Role == NetworkRole.None || !_transport.IsConnected)
+            {
+                return;
+            }
+
+            var payload = new RemoteAlignmentPayload
+            {
+                position = position,
+                rotation = rotation,
+                senderRole = Role.ToString(),
+                stage = stage,
+                confirmed = confirmed
+            };
+
+            _transport.SendRemoteAlignment(payload);
+        }
+
+        public void NotifyRematchReady(bool ready)
+        {
+            if (Role == NetworkRole.None || !_transport.IsConnected)
+            {
+                return;
+            }
+
+            var payload = new RematchReadyPayload
+            {
+                ready = ready
+            };
+
+            _transport.SendRematchReady(payload);
         }
 
         public string BuildLobbyStatus()
@@ -502,6 +572,28 @@ namespace Project.Networking
                 {
                     _pendingCalibrationReady = JsonUtility.FromJson<CalibrationReadyPayload>(message.payload);
                     _remoteCalibrationReadyRequested = _pendingCalibrationReady != null;
+                }
+                catch
+                {
+                }
+            }
+            else if (message.type == LanMessageTypes.RemoteAlignment && !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingRemoteAlignment = JsonUtility.FromJson<RemoteAlignmentPayload>(message.payload);
+                    _remoteAlignmentRequested = _pendingRemoteAlignment != null;
+                }
+                catch
+                {
+                }
+            }
+            else if (message.type == LanMessageTypes.RematchReady && !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingRematchReady = JsonUtility.FromJson<RematchReadyPayload>(message.payload);
+                    _remoteRematchReadyRequested = _pendingRematchReady != null;
                 }
                 catch
                 {

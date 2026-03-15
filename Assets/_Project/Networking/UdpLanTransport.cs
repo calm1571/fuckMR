@@ -256,6 +256,40 @@ namespace Project.Networking
             Send(message);
         }
 
+        public void SendRemoteAlignment(RemoteAlignmentPayload payload)
+        {
+            if (!_connected || payload == null)
+            {
+                return;
+            }
+
+            var message = new LanMessage
+            {
+                type = LanMessageTypes.RemoteAlignment,
+                playerId = _localPlayerId,
+                payload = JsonUtility.ToJson(payload)
+            };
+
+            Send(message);
+        }
+
+        public void SendRematchReady(RematchReadyPayload payload)
+        {
+            if (!_connected || payload == null)
+            {
+                return;
+            }
+
+            var message = new LanMessage
+            {
+                type = LanMessageTypes.RematchReady,
+                playerId = _localPlayerId,
+                payload = JsonUtility.ToJson(payload)
+            };
+
+            Send(message);
+        }
+
         public void Stop()
         {
             _role = NetworkRole.None;

@@ -15,6 +15,9 @@ namespace Project.Core
         private readonly float _verticalOffset;
         private readonly TMP_Text _statusText;
         private readonly TMP_Text _detectionText;
+        private readonly Button _confirmButton;
+        private readonly Button _backButton;
+        private readonly TMP_Text _confirmLabel;
 
         public CalibrationView(Transform cameraTransform, Action onConfirm, Action onBack, float distance, float verticalOffset)
         {
@@ -24,7 +27,7 @@ namespace Project.Core
             _root = new GameObject("CalibrationRoot");
 
             EnsureEventSystem();
-            BuildCanvas(onConfirm, onBack, out _statusText, out _detectionText);
+            BuildCanvas(onConfirm, onBack, out _statusText, out _detectionText, out _confirmButton, out _backButton, out _confirmLabel);
             SetVisible(false);
         }
 
@@ -49,6 +52,31 @@ namespace Project.Core
             }
         }
 
+        public void SetConfirmVisible(bool visible)
+        {
+            if (_confirmButton != null)
+            {
+                _confirmButton.gameObject.SetActive(visible);
+            }
+
+            if (_backButton != null)
+            {
+                var rect = _backButton.GetComponent<RectTransform>();
+                if (rect != null)
+                {
+                    rect.anchoredPosition = visible ? new Vector2(0f, -350f) : new Vector2(0f, -210f);
+                }
+            }
+        }
+
+        public void SetConfirmText(string text)
+        {
+            if (_confirmLabel != null && !string.IsNullOrEmpty(text))
+            {
+                _confirmLabel.text = text;
+            }
+        }
+
         public void Tick()
         {
             if (_cameraTransform == null)
@@ -66,7 +94,7 @@ namespace Project.Core
             _root.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
 
-        private void BuildCanvas(Action onConfirm, Action onBack, out TMP_Text statusText, out TMP_Text detectionText)
+        private void BuildCanvas(Action onConfirm, Action onBack, out TMP_Text statusText, out TMP_Text detectionText, out Button confirmButton, out Button backButton, out TMP_Text confirmLabel)
         {
             var canvasGo = new GameObject(
                 "CalibrationCanvas",
@@ -93,8 +121,8 @@ namespace Project.Core
             CreateTitle(panel, "Calibration");
             statusText = CreateBody(panel, "Right Stick: Move XZ\nLeft Stick: Rotate Y\nA/B: Height +/-");
             detectionText = CreateDetectionBlock(panel, "<color=#6CA9D9>Detection: Initializing...</color>");
-            CreateButton(panel, "Confirm", new Vector2(0f, -210f), onConfirm);
-            CreateButton(panel, "Back", new Vector2(0f, -350f), onBack);
+            confirmButton = CreateButton(panel, "Confirm", new Vector2(0f, -210f), onConfirm, out confirmLabel);
+            backButton = CreateButton(panel, "Back", new Vector2(0f, -350f), onBack);
         }
 
         private static RectTransform CreateImage(string name, RectTransform parent, Vector2 anchoredPos, Vector2 size, Color color)
@@ -193,7 +221,13 @@ namespace Project.Core
             return label;
         }
 
-        private static void CreateButton(RectTransform parent, string text, Vector2 anchoredPos, Action onClick)
+        private static Button CreateButton(RectTransform parent, string text, Vector2 anchoredPos, Action onClick)
+        {
+            TMP_Text _;
+            return CreateButton(parent, text, anchoredPos, onClick, out _);
+        }
+
+        private static Button CreateButton(RectTransform parent, string text, Vector2 anchoredPos, Action onClick, out TMP_Text labelOut)
         {
             var buttonRect = CreateImage(text + "Button", parent, anchoredPos, new Vector2(700f, 118f), new Color(0.14f, 0.25f, 0.34f, 1f));
             var button = buttonRect.gameObject.AddComponent<Button>();
@@ -229,6 +263,8 @@ namespace Project.Core
             label.fontSizeMax = 52f;
             label.alignment = TextAlignmentOptions.Center;
             label.color = Color.white;
+            labelOut = label;
+            return button;
         }
 
         private static TMP_FontAsset GetSafeFontAsset()

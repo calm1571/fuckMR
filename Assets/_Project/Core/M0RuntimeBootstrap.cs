@@ -14,6 +14,15 @@ namespace Project.Core
 {
     public sealed class M0RuntimeBootstrap : MonoBehaviour
     {
+        private const string BuildStamp = "MR-RESULT-RETRY-V5";
+
+        private enum LiveCalibrationPhase
+        {
+            ClientAdjustHost = 0,
+            HostAdjustClient = 1,
+            ReadyToPlay = 2
+        }
+
         [SerializeField] private float menuDistance = 2.2f;
         [SerializeField] private float menuVerticalOffset = -0.02f;
         [SerializeField] private float calibrationMoveSpeed = 1.2f;
@@ -29,10 +38,11 @@ namespace Project.Core
         [SerializeField] private float hitCheckRadius = 0.25f;
         [SerializeField] private bool enableSharedSpatialAnchor = true;
         [SerializeField] private bool enableAutoAprilTagTracking = true;
+        [SerializeField] private bool disableAprilTagCalibrationTemporarily = true;
         [SerializeField] private bool enableManualMarkerLock = true;
         [SerializeField] private string aprilTagFamily = "36h11";
         [SerializeField] private int aprilTagId = 0;
-        [SerializeField] private float aprilTagSizeMm = 100f;
+        [SerializeField] private float aprilTagSizeMm = 95f;
         [SerializeField] private int aprilTagFrameWidth = 640;
         [SerializeField] private int aprilTagFrameHeight = 480;
         [SerializeField] private float aprilTagVisualSizeMeters = 0.1f;
@@ -53,7 +63,9 @@ namespace Project.Core
         private M1AlwaysVisibleControllerLaser _alwaysVisibleLaser;
         private CalibrationView _calibrationView;
         private WorldRootController _worldRootController;
+        private RemoteAlignmentController _remoteAlignmentController;
         private GameObject _worldRootMarker;
+        private Transform _remoteAlignmentRoot;
         private RoleSelectView _roleSelectView;
         private LobbyView _lobbyHostView;
         private LobbyView _lobbyClientView;
@@ -68,6 +80,7 @@ namespace Project.Core
         private Coroutine _sharedAnchorPublishRoutine;
         private Coroutine _sharedAnchorResolveRoutine;
         private float _nextCalibrationSyncTime;
+        private float _nextRemoteAlignmentSyncTime;
         private ActionBasedController _leftActionController;
         private ActionBasedController _rightActionController;
         private M5ShieldVisual _localShieldVisual;
@@ -93,6 +106,24 @@ namespace Project.Core
         private float _localCalibrationReadySince = -1f;
         private float _lastCalibrationReadySendTime;
         private bool _lastSentCalibrationReady;
+        private LiveCalibrationPhase _liveCalibrationPhase;
+        private bool _clientAlignmentConfirmed;
+        private bool _hostAlignmentConfirmed;
+        private bool _localRematchReady;
+        private bool _remoteRematchReady;
+
+        private bool IsAprilTagCalibrationActive => enableAutoAprilTagTracking && !disableAprilTagCalibrationTemporarily;
+
+        private bool CanAdjustLiveRemoteAlignment()
+        {
+            if (IsAprilTagCalibrationActive)
+            {
+                return false;
+            }
+
+            return (_selectedRole == NetworkRole.Client && _liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost) ||
+                   (_selectedRole == NetworkRole.Host && _liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient);
+        }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureBootstrapExists()
@@ -148,13 +179,19 @@ namespace Project.Core
             _lobbyHostView = new LobbyView(camera.transform, "Lobby Host", "Start Match", HandleHostStartMatchClicked, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
             _lobbyClientView = new LobbyView(camera.transform, "Lobby Client", "Waiting Host", null, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
             _calibrationView = new CalibrationView(camera.transform, HandleCalibrationConfirmClicked, HandleCalibrationBackClicked, menuDistance, menuVerticalOffset);
-            _resultView = new LobbyView(camera.transform, "Result", "Back To Menu", HandleResultBackToMenuClicked, HandleResultBackToMenuClicked, menuDistance, menuVerticalOffset);
+            _resultView = new LobbyView(camera.transform, "Result", "Retry", HandleResultRetryClicked, HandleResultBackToMenuClicked, menuDistance, menuVerticalOffset);
             _playerHudView = new M5PlayerHudView(camera.transform, hudDistance, hudLocalOffset);
 
             _worldRootTransform = EnsureWorldRootExists();
             _worldRootController = new WorldRootController(
                 _worldRootTransform,
                 camera.transform,
+                calibrationMoveSpeed,
+                calibrationRotateSpeed,
+                calibrationHeightSpeed);
+            _remoteAlignmentRoot = EnsureRemoteAlignmentRootExists();
+            _remoteAlignmentController = new RemoteAlignmentController(
+                _remoteAlignmentRoot,
                 calibrationMoveSpeed,
                 calibrationRotateSpeed,
                 calibrationHeightSpeed);
@@ -194,8 +231,8 @@ namespace Project.Core
 
             if (!_projectileShooter.HasShootOriginAssigned && _rightActionController != null)
             {
-                var rayInteractor = _rightActionController.GetComponentInChildren<XRRayInteractor>(true);
-                _projectileShooter.SetShootOrigin(rayInteractor != null ? rayInteractor.transform : _rightActionController.transform);
+                // Keep projectile origin aligned with the visible right-hand proxy.
+                _projectileShooter.SetShootOrigin(_rightActionController.transform);
             }
 
             _projectileShooter.Bind(_inputSource);
@@ -228,16 +265,20 @@ namespace Project.Core
             _networkCoordinator.SharedAnchorReceived += OnSharedAnchorReceived;
             _networkCoordinator.StartPlayingRequested += OnStartPlayingRequested;
             _networkCoordinator.RemoteCalibrationReadyReceived += OnRemoteCalibrationReadyReceived;
+            _networkCoordinator.RemoteAlignmentReceived += OnRemoteAlignmentReceived;
+            _networkCoordinator.RemoteRematchReadyReceived += OnRemoteRematchReadyReceived;
 
             _remoteProxy = gameObject.GetComponent<M3RemotePlayerProxy>();
             if (_remoteProxy == null)
             {
                 _remoteProxy = gameObject.AddComponent<M3RemotePlayerProxy>();
             }
+            _remoteProxy.BindAlignmentRoot(_remoteAlignmentRoot);
+            _remoteAlignmentController?.SetPivotTransform(_remoteProxy.HeadTransform);
 
             _spatialAnchorService = new SpatialAnchorSyncService();
             var manualMarkerSource = new ManualMarkerTrackingSource();
-            if (enableAutoAprilTagTracking)
+            if (IsAprilTagCalibrationActive)
             {
                 var config = new AprilTagTrackingConfig(
                     aprilTagFamily,
@@ -307,6 +348,8 @@ namespace Project.Core
                 _networkCoordinator.SharedAnchorReceived -= OnSharedAnchorReceived;
                 _networkCoordinator.StartPlayingRequested -= OnStartPlayingRequested;
                 _networkCoordinator.RemoteCalibrationReadyReceived -= OnRemoteCalibrationReadyReceived;
+                _networkCoordinator.RemoteAlignmentReceived -= OnRemoteAlignmentReceived;
+                _networkCoordinator.RemoteRematchReadyReceived -= OnRemoteRematchReadyReceived;
                 _networkCoordinator.Stop();
             }
         }
@@ -505,6 +548,33 @@ namespace Project.Core
         {
             if (_selectedRole == NetworkRole.Client && !_clientWorldRootLocked)
             {
+                if (!IsAprilTagCalibrationActive)
+                {
+                    if (_liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost)
+                    {
+                        if (_networkCoordinator == null || !_networkCoordinator.IsConnected || !_networkCoordinator.HasRemotePose)
+                        {
+                            _calibrationView?.SetStatus("Waiting remote avatar stream before client adjustment.");
+                            return;
+                        }
+
+                        _clientAlignmentConfirmed = true;
+                        _liveCalibrationPhase = LiveCalibrationPhase.HostAdjustClient;
+                        _networkCoordinator?.NotifyRemoteAlignment(
+                            _remoteAlignmentRoot != null ? _remoteAlignmentRoot.position : Vector3.zero,
+                            _remoteAlignmentRoot != null ? _remoteAlignmentRoot.rotation : Quaternion.identity,
+                            true,
+                            LiveCalibrationPhase.ClientAdjustHost.ToString());
+                        _calibrationView?.SetStatus("Client step confirmed.\nWaiting for host to adjust your avatar.");
+                        return;
+                    }
+
+                    _calibrationView?.SetStatus(_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient
+                        ? "Waiting for host to finish adjustment."
+                        : "Waiting for host final Confirm to start match.");
+                    return;
+                }
+
                 var local = _localCalibrationReady ? "READY" : "WAIT";
                 var remote = _remoteCalibrationReady ? "READY" : "WAIT";
                 _calibrationView?.SetStatus($"Waiting host confirmation...\nDual-ready gate L/R: {local}/{remote}");
@@ -513,7 +583,53 @@ namespace Project.Core
 
             if (_selectedRole == NetworkRole.Host)
             {
-                if (enableManualMarkerLock)
+                if (!IsAprilTagCalibrationActive)
+                {
+                    if (_liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost)
+                    {
+                        _calibrationView?.SetStatus(_clientAlignmentConfirmed
+                            ? "Client confirmed host alignment.\nHost may proceed to phase 2."
+                            : "Waiting for client to align host avatar and confirm.");
+                        return;
+                    }
+
+                    if (_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient)
+                    {
+                        if (_networkCoordinator == null || !_networkCoordinator.IsConnected || !_networkCoordinator.HasRemotePose)
+                        {
+                            _calibrationView?.SetStatus("Waiting remote avatar stream before host adjustment.");
+                            return;
+                        }
+
+                        _hostAlignmentConfirmed = true;
+                        _liveCalibrationPhase = LiveCalibrationPhase.ReadyToPlay;
+                        _networkCoordinator?.NotifyRemoteAlignment(
+                            _remoteAlignmentRoot != null ? _remoteAlignmentRoot.position : Vector3.zero,
+                            _remoteAlignmentRoot != null ? _remoteAlignmentRoot.rotation : Quaternion.identity,
+                            true,
+                            LiveCalibrationPhase.HostAdjustClient.ToString());
+                        _calibrationView?.SetStatus("Host step confirmed.\nPress Confirm again to start match.");
+                        return;
+                    }
+
+                    if (!_clientAlignmentConfirmed || !_hostAlignmentConfirmed)
+                    {
+                        _calibrationView?.SetStatus("Calibration steps incomplete.\nClient and Host must both confirm their own view.");
+                        return;
+                    }
+                }
+
+                if (IsAprilTagCalibrationActive)
+                {
+                    if (!_hasMarkerSample || !_markerSample.hasPose || _markerSample.sourceMode != MarkerTrackingSourceMode.AutoAprilTag)
+                    {
+                        _calibrationView?.SetStatus("AprilTag not located yet.\nKeep tag 36h11 / ID0 fully visible until auto ready.");
+                        return;
+                    }
+
+                    ApplyWorldRootFromMarkerPose(_markerSample.pose);
+                }
+                else if (enableManualMarkerLock && !disableAprilTagCalibrationTemporarily)
                 {
                     if (!_hasMarkerSample || !_markerSample.hasPose || !_markerSample.isLocked)
                     {
@@ -524,7 +640,7 @@ namespace Project.Core
                     ApplyWorldRootFromMarkerPose(_markerSample.pose);
                 }
 
-                if (!_localCalibrationReady || !_remoteCalibrationReady)
+                if (IsAprilTagCalibrationActive && (!_localCalibrationReady || !_remoteCalibrationReady))
                 {
                     _calibrationView?.SetStatus("Dual-ready gate not met.\nBoth Host and Client must be READY before Confirm.");
                     return;
@@ -536,7 +652,7 @@ namespace Project.Core
                     return;
                 }
 
-                if (_worldRootTransform != null)
+                if (IsAprilTagCalibrationActive && _worldRootTransform != null)
                 {
                     if (_worldRootSyncRoutine != null)
                     {
@@ -547,7 +663,7 @@ namespace Project.Core
                     _networkCoordinator.NotifyHostWorldRootSync(_worldRootTransform.position, _worldRootTransform.rotation);
                 }
 
-                if (enableSharedSpatialAnchor)
+                if (IsAprilTagCalibrationActive && enableSharedSpatialAnchor)
                 {
                     if (_sharedAnchorPublishRoutine != null)
                     {
@@ -587,12 +703,20 @@ namespace Project.Core
         {
             _clientWorldRootLocked = false;
             _nextCalibrationSyncTime = 0f;
+            _nextRemoteAlignmentSyncTime = 0f;
             _hasMarkerSample = false;
             _localCalibrationReady = false;
             _remoteCalibrationReady = false;
+            _liveCalibrationPhase = IsAprilTagCalibrationActive ? LiveCalibrationPhase.ReadyToPlay : LiveCalibrationPhase.ClientAdjustHost;
+            _clientAlignmentConfirmed = false;
+            _hostAlignmentConfirmed = false;
             _localCalibrationReadySince = -1f;
             _lastCalibrationReadySendTime = -999f;
             _lastSentCalibrationReady = false;
+            if (_remoteAlignmentRoot != null)
+            {
+                _remoteAlignmentRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            }
             _projectileShooter?.SetShootingEnabled(false);
             _localShieldVisual?.Deactivate();
             _remoteShieldVisual?.Deactivate();
@@ -603,15 +727,25 @@ namespace Project.Core
             }
 
             _calibrationView?.SetVisible(true);
+            _calibrationView?.SetConfirmVisible(true);
+            _calibrationView?.SetConfirmText(IsAprilTagCalibrationActive ? "Confirm" : "Confirm Step");
             if (_selectedRole == NetworkRole.Client)
             {
-                _calibrationView?.SetStatus("Waiting host confirmation...\nYou can fine-tune locally before lock.");
-                _calibrationView?.SetDetectionStatus("<color=#6CA9D9>Detection: waiting host marker lock...</color>");
+                _calibrationView?.SetStatus(IsAprilTagCalibrationActive
+                    ? "Waiting host confirmation...\nAuto AprilTag localization in progress."
+                    : "Phase 1/3: Adjust Host avatar on Client.\nFine-tune, then press Confirm Step.");
+                _calibrationView?.SetDetectionStatus(IsAprilTagCalibrationActive
+                    ? "<color=#6CA9D9>Detection: searching AprilTag automatically...</color>"
+                    : "<color=#6CA9D9>Detection: AprilTag disabled. Live remote alignment only.</color>");
             }
             else
             {
-                _calibrationView?.SetStatus(_worldRootController != null ? _worldRootController.BuildStatusText() : "WorldRoot unavailable");
-                _calibrationView?.SetDetectionStatus("<color=#6CA9D9>Detection: searching AprilTag...</color>");
+                _calibrationView?.SetStatus(IsAprilTagCalibrationActive
+                    ? (_worldRootController != null ? _worldRootController.BuildStatusText() : "WorldRoot unavailable")
+                    : "Phase 1/3: Waiting for Client to adjust Host avatar.");
+                _calibrationView?.SetDetectionStatus(IsAprilTagCalibrationActive
+                    ? "<color=#6CA9D9>Detection: searching AprilTag automatically...</color>"
+                    : "<color=#6CA9D9>Detection: AprilTag disabled. Use live refine and Confirm when ready.</color>");
             }
             if (_worldRootMarker != null)
             {
@@ -635,6 +769,7 @@ namespace Project.Core
             }
 
             _calibrationView?.SetVisible(false);
+            _calibrationView?.SetConfirmVisible(true);
             _markerTrackingSource?.End();
             if (_worldRootMarker != null)
             {
@@ -655,12 +790,18 @@ namespace Project.Core
 
         private void OnTickCalibration()
         {
-            if (!_clientWorldRootLocked)
+            var now = Time.unscaledTime;
+            if (!_clientWorldRootLocked && !IsAprilTagCalibrationActive && !disableAprilTagCalibrationTemporarily)
             {
                 _worldRootController?.Tick(Time.deltaTime);
             }
 
-            if (_markerTrackingSource != null)
+            if (CanAdjustLiveRemoteAlignment() && _networkCoordinator != null && _networkCoordinator.HasRemotePose)
+            {
+                _remoteAlignmentController?.Tick(Time.deltaTime);
+            }
+
+            if (IsAprilTagCalibrationActive && _markerTrackingSource != null)
             {
                 _markerTrackingSource.Tick(Time.deltaTime);
                 _hasMarkerSample = _markerTrackingSource.TryGetSample(out _markerSample);
@@ -670,36 +811,98 @@ namespace Project.Core
                 _hasMarkerSample = false;
             }
 
-            UpdateLocalCalibrationReady(Time.unscaledTime);
-            SendCalibrationReadyIfNeeded(Time.unscaledTime);
+            UpdateLocalCalibrationReady(now);
+            SendCalibrationReadyIfNeeded(now);
             UpdateAprilTagTrackingFrameVisual();
 
-            if (_selectedRole == NetworkRole.Host && enableManualMarkerLock && _hasMarkerSample && _markerSample.hasPose && _markerSample.isLocked)
+            if (IsAprilTagCalibrationActive &&
+                _selectedRole == NetworkRole.Host &&
+                _hasMarkerSample &&
+                _markerSample.hasPose &&
+                _markerSample.sourceMode == MarkerTrackingSourceMode.AutoAprilTag)
+            {
+                ApplyWorldRootFromMarkerPose(_markerSample.pose);
+            }
+            else if (_selectedRole == NetworkRole.Host && enableManualMarkerLock && !disableAprilTagCalibrationTemporarily && _hasMarkerSample && _markerSample.hasPose && _markerSample.isLocked)
             {
                 ApplyWorldRootFromMarkerPose(_markerSample.pose);
             }
 
             _calibrationView?.Tick();
             _calibrationView?.SetDetectionStatus(BuildCalibrationDetectionText());
-            if (_worldRootController != null)
+            if (IsAprilTagCalibrationActive)
             {
-                var baseStatus = _worldRootController.BuildStatusText();
                 if (_selectedRole == NetworkRole.Host)
                 {
-                    _calibrationView?.SetStatus(baseStatus + "\nDual-ready gate required. Host Confirm will broadcast WorldRoot.");
+                    var readyText = (_localCalibrationReady && _remoteCalibrationReady)
+                        ? "Both devices READY. Press Confirm to start."
+                        : "Waiting for both devices to become READY.";
+                    _calibrationView?.SetStatus($"Auto localization running.\nKeep AprilTag fully visible.\n{readyText}\n{BuildRemoteAlignmentStatusText()}");
                 }
                 else if (_selectedRole == NetworkRole.Client)
                 {
-                    var suffix = _clientWorldRootLocked ? "\nWorldRoot locked by host. Entering match..." : "\nDual-ready gate pending host confirmation...";
-                    _calibrationView?.SetStatus(baseStatus + suffix);
+                    var suffix = _clientWorldRootLocked
+                        ? "WorldRoot locked by host. Entering match..."
+                        : "Adjust remote avatar, then wait for host Confirm.";
+                    _calibrationView?.SetStatus($"Auto localization running.\nKeep AprilTag fully visible.\n{suffix}\n{BuildRemoteAlignmentStatusText()}");
                 }
                 else
                 {
-                    _calibrationView?.SetStatus(baseStatus);
+                    _calibrationView?.SetStatus("Auto localization running.\nKeep AprilTag fully visible.");
+                }
+            }
+            else
+            {
+                if (_selectedRole == NetworkRole.Host)
+                {
+                    _calibrationView?.SetConfirmText(_liveCalibrationPhase == LiveCalibrationPhase.ReadyToPlay ? "Confirm" : "Confirm Step");
+                    string phaseText;
+                    if (_liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost)
+                    {
+                        phaseText = _clientAlignmentConfirmed
+                            ? "Phase 1/3 complete.\nPrepare to adjust Client avatar."
+                            : "Phase 1/3: Waiting for Client to align Host avatar and confirm.";
+                    }
+                    else if (_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient)
+                    {
+                        phaseText = "Phase 2/3: Host adjusts Client avatar.\nPress Confirm Step when done.";
+                    }
+                    else
+                    {
+                        phaseText = "Phase 3/3: Both steps locked.\nPress Confirm to start match.";
+                    }
+
+                    _calibrationView?.SetStatus($"Live remote alignment mode.\n{phaseText}\n{BuildRemoteAlignmentStatusText()}");
+                }
+                else if (_selectedRole == NetworkRole.Client)
+                {
+                    _calibrationView?.SetConfirmText(_liveCalibrationPhase == LiveCalibrationPhase.ReadyToPlay ? "Confirm" : "Confirm Step");
+                    string phaseText;
+                    if (_liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost)
+                    {
+                        phaseText = "Phase 1/3: Client adjusts Host avatar.\nPress Confirm Step when done.";
+                    }
+                    else if (_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient)
+                    {
+                        phaseText = _hostAlignmentConfirmed
+                            ? "Phase 2/3 complete.\nWaiting for host final Confirm."
+                            : "Phase 2/3: Host is adjusting your avatar.\nPlease wait.";
+                    }
+                    else
+                    {
+                        phaseText = "Phase 3/3: Waiting for host final Confirm.";
+                    }
+
+                    _calibrationView?.SetStatus($"Live remote alignment mode.\n{phaseText}\n{BuildRemoteAlignmentStatusText()}");
+                }
+                else
+                {
+                    _calibrationView?.SetStatus("Live remote alignment mode.");
                 }
             }
 
-            if (_selectedRole == NetworkRole.Host &&
+            if (IsAprilTagCalibrationActive &&
+                _selectedRole == NetworkRole.Host &&
                 _networkCoordinator != null &&
                 _networkCoordinator.IsConnected &&
                 _worldRootTransform != null &&
@@ -708,20 +911,36 @@ namespace Project.Core
                 _networkCoordinator.NotifyHostWorldRootSync(_worldRootTransform.position, _worldRootTransform.rotation);
                 _nextCalibrationSyncTime = Time.unscaledTime + Mathf.Max(0.02f, calibrationSyncInterval);
             }
+
         }
 
         private string BuildCalibrationDetectionText()
         {
-            if (!enableManualMarkerLock || _markerTrackingSource == null)
+            if (_markerTrackingSource == null)
             {
-                return "<color=#9DB2C6>Detection: manual world-root mode (no marker lock)</color>";
+                return "<color=#9DB2C6>Detection: tracking source unavailable</color>";
             }
 
             var gateText = $"Gate L/R: {(_localCalibrationReady ? "<color=#7CFF9A>READY</color>" : "<color=#FF8A8A>WAIT</color>")}/{(_remoteCalibrationReady ? "<color=#7CFF9A>READY</color>" : "<color=#FF8A8A>WAIT</color>")}";
+            if (!IsAprilTagCalibrationActive)
+            {
+                return $"<color=#6CA9D9>Detection: AprilTag disabled for now. Use live remote alignment.</color>\n{gateText}";
+            }
+
             var sourceText = _markerSample.sourceMode == MarkerTrackingSourceMode.AutoAprilTag ? "Source: Auto AprilTag" : "Source: Manual";
             if (_hasMarkerSample && _markerSample.hasPose)
             {
                 var stability = Mathf.RoundToInt(Mathf.Clamp01(_markerSample.stability01) * 100f);
+                if (IsAprilTagCalibrationActive && _markerSample.sourceMode == MarkerTrackingSourceMode.AutoAprilTag)
+                {
+                    if (_localCalibrationReady)
+                    {
+                        return $"<color=#7CFF9A>Detection: AprilTag auto-located ({stability}%).</color>\n{sourceText}\n{gateText}";
+                    }
+
+                    return $"<color=#FFD06D>Detection: AprilTag detected ({stability}%). Holding for auto-ready...</color>\n{sourceText}\n{gateText}";
+                }
+
                 if (_markerSample.isLocked)
                 {
                     if (_selectedRole == NetworkRole.Host)
@@ -740,23 +959,64 @@ namespace Project.Core
                 return $"<color=#FFD06D>Detection: local marker found ({stability}%). Press X to lock locally.</color>\n{sourceText}\n{gateText}";
             }
 
-            return $"<color=#FF8A8A>Detection: AprilTag not found. Face tag 36h11 / ID0 (100mm) and keep it fully visible.</color>\n{gateText}";
+            return $"<color=#FF8A8A>Detection: AprilTag not found. Face tag 36h11 / ID0 (95mm) and keep it fully visible.</color>\n{gateText}";
+        }
+
+        private string BuildRemoteAlignmentStatusText()
+        {
+            if (_networkCoordinator == null || !_networkCoordinator.HasRemotePose || _remoteAlignmentController == null)
+            {
+                return "Remote refine: waiting remote avatar";
+            }
+
+            return _remoteAlignmentController.BuildStatusText();
         }
 
         private void UpdateLocalCalibrationReady(float now)
         {
-            if (!enableManualMarkerLock || _markerTrackingSource == null)
+            if (!IsAprilTagCalibrationActive)
             {
-                _localCalibrationReady = true;
-                _localCalibrationReadySince = now;
+                var hasPose = _networkCoordinator != null && _networkCoordinator.IsConnected && _networkCoordinator.HasRemotePose;
+                if (_liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost)
+                {
+                    _localCalibrationReady = _selectedRole == NetworkRole.Client ? hasPose : _clientAlignmentConfirmed;
+                }
+                else if (_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient)
+                {
+                    _localCalibrationReady = _selectedRole == NetworkRole.Host ? hasPose : _hostAlignmentConfirmed;
+                }
+                else
+                {
+                    _localCalibrationReady = _clientAlignmentConfirmed && _hostAlignmentConfirmed;
+                }
+
+                _localCalibrationReadySince = _localCalibrationReady ? now : -1f;
                 return;
             }
 
-            var stableEnough = _hasMarkerSample &&
+            if (_markerTrackingSource == null)
+            {
+                _localCalibrationReady = false;
+                _localCalibrationReadySince = -1f;
+                return;
+            }
+
+            bool stableEnough;
+            if (IsAprilTagCalibrationActive)
+            {
+                stableEnough = _hasMarkerSample &&
+                               _markerSample.hasPose &&
+                               _markerSample.sourceMode == MarkerTrackingSourceMode.AutoAprilTag &&
+                               _markerSample.stability01 >= Mathf.Clamp01(calibrationReadyStabilityThreshold);
+            }
+            else
+            {
+                stableEnough = _hasMarkerSample &&
                                _markerSample.hasPose &&
                                _markerSample.isLocked &&
-                               (!enableAutoAprilTagTracking || _markerSample.sourceMode == MarkerTrackingSourceMode.AutoAprilTag) &&
                                _markerSample.stability01 >= Mathf.Clamp01(calibrationReadyStabilityThreshold);
+            }
+
             if (stableEnough)
             {
                 if (_localCalibrationReadySince < 0f)
@@ -787,7 +1047,7 @@ namespace Project.Core
             }
 
             var stability = _hasMarkerSample ? _markerSample.stability01 : 0f;
-            var isLocked = _hasMarkerSample && _markerSample.isLocked;
+            var isLocked = IsAprilTagCalibrationActive ? _localCalibrationReady : _localCalibrationReady;
             _networkCoordinator.NotifyCalibrationReady(_localCalibrationReady, _hasMarkerSample, isLocked, stability);
             _lastCalibrationReadySendTime = now;
             _lastSentCalibrationReady = _localCalibrationReady;
@@ -802,6 +1062,7 @@ namespace Project.Core
 
             var shouldShow = _stateMachine != null &&
                              _stateMachine.CurrentId == AppStateId.Calibration &&
+                             IsAprilTagCalibrationActive &&
                              _hasMarkerSample &&
                              _markerSample.hasPose &&
                              _markerSample.sourceMode == MarkerTrackingSourceMode.AutoAprilTag;
@@ -830,7 +1091,7 @@ namespace Project.Core
 
         private void OnRemoteWorldRootSyncReceived(WorldRootSyncPayload payload)
         {
-            if (_selectedRole != NetworkRole.Client || payload == null)
+            if (_selectedRole != NetworkRole.Client || payload == null || !IsAprilTagCalibrationActive)
             {
                 return;
             }
@@ -850,6 +1111,13 @@ namespace Project.Core
                 return;
             }
 
+            if (_stateMachine.CurrentId == AppStateId.Result)
+            {
+                ResetCombatForNewMatch();
+                _stateMachine.ChangeState(AppStateId.Playing);
+                return;
+            }
+
             if (_stateMachine.CurrentId == AppStateId.Calibration || _stateMachine.CurrentId == AppStateId.LobbyClient)
             {
                 _stateMachine.ChangeState(AppStateId.Playing);
@@ -864,6 +1132,31 @@ namespace Project.Core
             }
 
             _remoteCalibrationReady = payload.ready;
+        }
+
+        private void OnRemoteAlignmentReceived(RemoteAlignmentPayload payload)
+        {
+            if (payload == null || IsAprilTagCalibrationActive)
+            {
+                return;
+            }
+
+            if (payload.senderRole == NetworkRole.Client.ToString() &&
+                payload.stage == LiveCalibrationPhase.ClientAdjustHost.ToString() &&
+                payload.confirmed)
+            {
+                _clientAlignmentConfirmed = true;
+                _liveCalibrationPhase = LiveCalibrationPhase.HostAdjustClient;
+                return;
+            }
+
+            if (payload.senderRole == NetworkRole.Host.ToString() &&
+                payload.stage == LiveCalibrationPhase.HostAdjustClient.ToString() &&
+                payload.confirmed)
+            {
+                _hostAlignmentConfirmed = true;
+                _liveCalibrationPhase = LiveCalibrationPhase.ReadyToPlay;
+            }
         }
 
         private void OnSharedAnchorReceived(SharedAnchorPayload payload)
@@ -915,9 +1208,11 @@ namespace Project.Core
                 return;
             }
 
+            var visualSpawn = TransformRemotePositionForDisplay(shot.spawnPosition);
+            var visualDirection = TransformRemoteDirectionForDisplay(shot.direction);
             _projectileShooter.SpawnRemoteProjectile(
-                shot.spawnPosition,
-                shot.direction,
+                visualSpawn,
+                visualDirection,
                 shot.speed,
                 shot.maxDistance,
                 shot.lifetime);
@@ -932,8 +1227,8 @@ namespace Project.Core
                 _clientNextShootAllowedTime = Time.time + GetShootCooldown();
                 HostResolveShotAgainstHost(new M1ProjectileShooter.ShotInfo
                 {
-                    spawnPosition = shot.spawnPosition,
-                    direction = shot.direction,
+                    spawnPosition = visualSpawn,
+                    direction = visualDirection,
                     speed = shot.speed,
                     maxDistance = shot.maxDistance,
                     lifetime = shot.lifetime
@@ -1077,19 +1372,40 @@ namespace Project.Core
             _projectileShooter?.SetShootingEnabled(false);
             _localShieldVisual?.Deactivate();
             _remoteShieldVisual?.Deactivate();
-            _resultView?.SetStatus(_resultText);
-            _resultView?.SetPrimaryButton("Back To Menu", true);
+            _localRematchReady = false;
+            _remoteRematchReady = false;
+            _resultView?.SetVisible(true);
+            _resultView?.SetStatus(_resultText + $"\n[{BuildStamp}]\n\nPress Retry. Both players must confirm to rematch.");
+            _resultView?.SetPrimaryButton("Retry", true);
             _playerHudView?.SetVisible(true);
             Debug.Log($"M5: Enter Result => {_resultText}");
         }
 
         private void OnExitResult()
         {
+            _resultView?.SetVisible(false);
         }
 
         private void OnTickResult()
         {
             _resultView?.Tick();
+        }
+
+        private void HandleResultRetryClicked()
+        {
+            if (_networkCoordinator == null || !_networkCoordinator.IsConnected || _selectedRole == NetworkRole.None)
+            {
+                return;
+            }
+
+            _localRematchReady = true;
+            _resultView?.SetPrimaryButton("Waiting Other...", false);
+            _networkCoordinator.NotifyRematchReady(true);
+
+            if (_selectedRole == NetworkRole.Host)
+            {
+                TryStartRematchAsHost();
+            }
         }
 
         private void HandleResultBackToMenuClicked()
@@ -1160,11 +1476,48 @@ namespace Project.Core
             }
 
             var winner = payload.winnerRole;
-            _resultText = winner == "Host" ? "Host Wins" : "Client Wins";
+            var localWon =
+                (_selectedRole == NetworkRole.Host && winner == "Host") ||
+                (_selectedRole == NetworkRole.Client && winner == "Client");
+            _resultText = localWon ? "WIN" : "LOSE";
             if (_stateMachine != null && _stateMachine.CurrentId != AppStateId.Result)
             {
                 _stateMachine.ChangeState(AppStateId.Result);
             }
+        }
+
+        private void OnRemoteRematchReadyReceived(RematchReadyPayload payload)
+        {
+            if (payload == null)
+            {
+                return;
+            }
+
+            _remoteRematchReady = payload.ready;
+            if (_stateMachine != null && _stateMachine.CurrentId == AppStateId.Result)
+            {
+                if (!_localRematchReady)
+                {
+                    _resultView?.SetStatus(_resultText + $"\n[{BuildStamp}]\n\nOther player is ready for retry.");
+                }
+
+                if (_selectedRole == NetworkRole.Host)
+                {
+                    TryStartRematchAsHost();
+                }
+            }
+        }
+
+        private void TryStartRematchAsHost()
+        {
+            if (_selectedRole != NetworkRole.Host || !_localRematchReady || !_remoteRematchReady)
+            {
+                return;
+            }
+
+            ResetCombatForNewMatch();
+            _networkCoordinator?.NotifyHostStartPlaying();
+            _stateMachine?.ChangeState(AppStateId.Playing);
         }
 
         private void TickCombat()
@@ -1237,7 +1590,7 @@ namespace Project.Core
                 return;
             }
 
-            if (!IsShotHitTarget(shot, _remoteProxy != null ? _remoteProxy.HeadTransform : null))
+            if (!TryGetAlignedRemoteHeadPosition(out var remoteHeadPos) || !IsShotHitPosition(shot, remoteHeadPos))
             {
                 return;
             }
@@ -1264,7 +1617,7 @@ namespace Project.Core
                 return;
             }
 
-            if (!IsShotHitTarget(shot, Camera.main != null ? Camera.main.transform : null))
+            if (Camera.main == null || !IsShotHitPosition(shot, Camera.main.transform.position))
             {
                 return;
             }
@@ -1280,20 +1633,44 @@ namespace Project.Core
 
         private void EnterResultAsHost(string winnerRole)
         {
-            _resultText = winnerRole == "Host" ? "Host Wins" : "Client Wins";
+            _resultText = winnerRole == "Host" ? "WIN" : "LOSE";
             _networkCoordinator?.NotifyHostMatchResult(winnerRole);
             _stateMachine?.ChangeState(AppStateId.Result);
         }
 
-        private bool IsShotHitTarget(M1ProjectileShooter.ShotInfo shot, Transform targetHead)
+        private bool TryGetAlignedRemoteHeadPosition(out Vector3 remoteHeadPosition)
         {
-            if (targetHead == null)
+            remoteHeadPosition = Vector3.zero;
+            if (_remoteProxy != null && _remoteProxy.HeadTransform != null)
+            {
+                remoteHeadPosition = _remoteProxy.HeadTransform.position;
+                return true;
+            }
+
+            if (_networkCoordinator == null || !_networkCoordinator.HasRemotePose || _networkCoordinator.LatestRemotePose == null)
             {
                 return false;
             }
 
+            remoteHeadPosition = TransformRemotePositionForDisplay(_networkCoordinator.LatestRemotePose.head.position);
+            return true;
+        }
+
+        private Vector3 TransformRemotePositionForDisplay(Vector3 rawPosition)
+        {
+            return _remoteAlignmentRoot != null ? _remoteAlignmentRoot.TransformPoint(rawPosition) : rawPosition;
+        }
+
+        private Vector3 TransformRemoteDirectionForDisplay(Vector3 rawDirection)
+        {
+            var dir = rawDirection.sqrMagnitude < 0.0001f ? Vector3.forward : rawDirection.normalized;
+            return _remoteAlignmentRoot != null ? (_remoteAlignmentRoot.rotation * dir).normalized : dir;
+        }
+
+        private bool IsShotHitPosition(M1ProjectileShooter.ShotInfo shot, Vector3 targetPosition)
+        {
             var dir = shot.direction.sqrMagnitude < 0.0001f ? Vector3.forward : shot.direction.normalized;
-            var toTarget = targetHead.position - shot.spawnPosition;
+            var toTarget = targetPosition - shot.spawnPosition;
             var projection = Vector3.Dot(dir, toTarget);
             if (projection < 0f || projection > Mathf.Max(0.1f, shot.maxDistance))
             {
@@ -1301,7 +1678,7 @@ namespace Project.Core
             }
 
             var closest = shot.spawnPosition + dir * projection;
-            var distance = Vector3.Distance(closest, targetHead.position);
+            var distance = Vector3.Distance(closest, targetPosition);
             return distance <= Mathf.Max(0.05f, hitCheckRadius + GetProjectileRadius());
         }
 
@@ -1552,6 +1929,19 @@ namespace Project.Core
             }
 
             var root = new GameObject("WorldRoot");
+            return root.transform;
+        }
+
+        private static Transform EnsureRemoteAlignmentRootExists()
+        {
+            var existing = GameObject.Find("RemoteAlignmentRoot");
+            if (existing != null)
+            {
+                return existing.transform;
+            }
+
+            var root = new GameObject("RemoteAlignmentRoot");
+            root.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             return root.transform;
         }
 
