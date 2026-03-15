@@ -73,24 +73,40 @@ ServerData/
 ########################################
 
 # Old package (replaced)
-FuckMR/Assets/OpenCV+Unity/
+Assets/OpenCV+Unity/
+Assets/OpenCV+Unity.meta
 
 # OpenCVForUnity optional/demo content
-FuckMR/Assets/OpenCVForUnity/Examples/
-FuckMR/Assets/OpenCVForUnity/StreamingAssets/OpenCVForUnity/
+Assets/OpenCVForUnity/Examples/
+Assets/OpenCVForUnity/Examples.meta
+Assets/OpenCVForUnity/StreamingAssets/OpenCVForUnity/
 
 # Keep Android libs, ignore other platform binaries
-FuckMR/Assets/OpenCVForUnity/Plugins/WebGL/
-FuckMR/Assets/OpenCVForUnity/Plugins/iOS/
-FuckMR/Assets/OpenCVForUnity/Plugins/macOS/
-FuckMR/Assets/OpenCVForUnity/Plugins/Windows/
-FuckMR/Assets/OpenCVForUnity/Plugins/Linux/
-FuckMR/Assets/OpenCVForUnity/Extra.unitypackage
+Assets/OpenCVForUnity/Plugins/WebGL/
+Assets/OpenCVForUnity/Plugins/WebGL.meta
+Assets/OpenCVForUnity/Plugins/iOS/
+Assets/OpenCVForUnity/Plugins/iOS.meta
+Assets/OpenCVForUnity/Plugins/macOS/
+Assets/OpenCVForUnity/Plugins/macOS.meta
+Assets/OpenCVForUnity/Plugins/Windows/
+Assets/OpenCVForUnity/Plugins/Windows.meta
+Assets/OpenCVForUnity/Plugins/Linux/
+Assets/OpenCVForUnity/Plugins/Linux.meta
+Assets/OpenCVForUnity/Extra.unitypackage
 
 # Android: keep only arm64-v8a for PICO device builds
-FuckMR/Assets/OpenCVForUnity/Plugins/Android/libs/armeabi-v7a/
-FuckMR/Assets/OpenCVForUnity/Plugins/Android/libs/x86/
-FuckMR/Assets/OpenCVForUnity/Plugins/Android/libs/x86_64/
+Assets/OpenCVForUnity/Plugins/Android/libs/armeabi-v7a/
+Assets/OpenCVForUnity/Plugins/Android/libs/armeabi-v7a.meta
+Assets/OpenCVForUnity/Plugins/Android/libs/x86/
+Assets/OpenCVForUnity/Plugins/Android/libs/x86.meta
+Assets/OpenCVForUnity/Plugins/Android/libs/x86_64/
+Assets/OpenCVForUnity/Plugins/Android/libs/x86_64.meta
+
+########################################
+# Local tooling
+########################################
+
+.vs/
 
 ########################################
 # Do NOT ignore these (important!)
