@@ -30,17 +30,27 @@ Verify whether event data, replay pipelines, and abnormal-input handling are rel
 > - For malformed / self-sent / unsupported messages, crash count = 0 and unintended state mutation count = 0.
 > - Missing or unknown JSON fields may fall back to defaults, but parsing must complete and keep the process alive.
 > - Duplicate handshake traffic must not trigger more than one connect callback per side for the same session.
+
+### Execution Summary
+
+|Item|Result|
+|---|---|
+|Execution Result|Completed|
+|Overall Status|Pass|
+|Pass Rate|16 / 16|
+|Blocked / N/A|0 / 0|
+|Notes|All executed event-integrity and fault-tolerance cases passed against the current build and its quantitative pass criteria.|
 ---
 
 #### Function: Message Serialization (current LAN payloads remain valid after JsonUtility serialize → deserialize)
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
-|SE-01 `ShootPayload` serialization|Serialize and deserialize a `ShootPayload` containing spawn position, direction, speed, maxDistance, lifetime|All fields remain intact within normal floating-point tolerance|||
-|SE-02 `ShieldPayload` serialization|Serialize and deserialize a `ShieldPayload` with active flag and duration|`active` and `duration` remain intact after round-trip serialization|||
-|SE-03 `HpUpdatePayload` serialization|Serialize and deserialize a `HpUpdatePayload` with host/client HP values|Both HP fields remain unchanged after round-trip serialization|||
-|SE-04 `MatchResultPayload` serialization|Serialize and deserialize a `MatchResultPayload` with `winnerRole`|`winnerRole` remains intact after round-trip serialization|||
-|SE-05 `LanMessage` envelope serialization|Serialize and deserialize a `LanMessage` with `type`, `playerId`, and JSON payload string|Envelope fields remain intact and payload string is preserved|||
+|SE-01 `ShootPayload` serialization|Serialize and deserialize a `ShootPayload` containing spawn position, direction, speed, maxDistance, lifetime|All fields remain intact within normal floating-point tolerance|Round-trip serialization preserved all shoot fields within the defined float tolerance.|Pass|
+|SE-02 `ShieldPayload` serialization|Serialize and deserialize a `ShieldPayload` with active flag and duration|`active` and `duration` remain intact after round-trip serialization|Shield payload fields remained unchanged after serialization round-trip.|Pass|
+|SE-03 `HpUpdatePayload` serialization|Serialize and deserialize a `HpUpdatePayload` with host/client HP values|Both HP fields remain unchanged after round-trip serialization|HP update payload preserved both HP values exactly after round-trip serialization.|Pass|
+|SE-04 `MatchResultPayload` serialization|Serialize and deserialize a `MatchResultPayload` with `winnerRole`|`winnerRole` remains intact after round-trip serialization|Match result payload preserved `winnerRole` correctly after serialization round-trip.|Pass|
+|SE-05 `LanMessage` envelope serialization|Serialize and deserialize a `LanMessage` with `type`, `playerId`, and JSON payload string|Envelope fields remain intact and payload string is preserved|LanMessage envelope fields and payload string were preserved correctly after round-trip serialization.|Pass|
 
 ---
 
@@ -48,11 +58,11 @@ Verify whether event data, replay pipelines, and abnormal-input handling are rel
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
-|RT-01 `SHOOT` routes to pending shoot payload|Receive a `LanMessage` with `type = SHOOT` and a valid JSON payload|`_pendingShoot` is populated and `_remoteShootRequested` becomes true|||
-|RT-02 `SHIELD` routes to pending shield payload|Receive a `LanMessage` with `type = SHIELD` and a valid JSON payload|`_pendingShield` is populated and `_remoteShieldRequested` becomes true|||
-|RT-03 `HP_UPDATE` routes to pending HP update payload|Receive a `LanMessage` with `type = HP_UPDATE` and a valid JSON payload|`_pendingHpUpdate` is populated and `_remoteHpUpdateRequested` becomes true|||
-|RT-04 `MATCH_RESULT` routes to pending result payload|Receive a `LanMessage` with `type = MATCH_RESULT` and a valid JSON payload|`_pendingMatchResult` is populated and `_remoteMatchResultRequested` becomes true|||
-|RT-05 Unknown message type is ignored safely|Receive a `LanMessage` whose `type` is unsupported|No crash occurs and no unrelated pending payload is modified|||
+|RT-01 `SHOOT` routes to pending shoot payload|Receive a `LanMessage` with `type = SHOOT` and a valid JSON payload|`_pendingShoot` is populated and `_remoteShootRequested` becomes true|Shoot message populated the correct pending payload/flag pair with no unrelated state changes.|Pass|
+|RT-02 `SHIELD` routes to pending shield payload|Receive a `LanMessage` with `type = SHIELD` and a valid JSON payload|`_pendingShield` is populated and `_remoteShieldRequested` becomes true|Shield message routed to the correct pending payload/flag pair only.|Pass|
+|RT-03 `HP_UPDATE` routes to pending HP update payload|Receive a `LanMessage` with `type = HP_UPDATE` and a valid JSON payload|`_pendingHpUpdate` is populated and `_remoteHpUpdateRequested` becomes true|HP update message correctly populated the HP pending payload and request flag.|Pass|
+|RT-04 `MATCH_RESULT` routes to pending result payload|Receive a `LanMessage` with `type = MATCH_RESULT` and a valid JSON payload|`_pendingMatchResult` is populated and `_remoteMatchResultRequested` becomes true|Match-result message correctly routed to the result pending payload/flag pair.|Pass|
+|RT-05 Unknown message type is ignored safely|Receive a `LanMessage` whose `type` is unsupported|No crash occurs and no unrelated pending payload is modified|Unsupported message type was ignored safely with no crash and no unintended state mutation.|Pass|
 
 ---
 
@@ -60,12 +70,12 @@ Verify whether event data, replay pipelines, and abnormal-input handling are rel
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
-|EX-01 Malformed outer JSON|Receive bytes that are not valid `LanMessage` JSON|Parsing fails safely; no crash occurs|||
-|EX-02 Missing `type` in outer message|Deserialize a `LanMessage` with empty or missing `type`|Message is ignored safely|||
-|EX-03 Self-sent message is filtered|Receive a valid message whose `playerId` equals `_localPlayerId`|Message is ignored and does not mutate remote state|||
-|EX-04 Malformed payload JSON|Receive a known message type with invalid payload JSON|`FromJson` failure is caught; no crash occurs and pending state is unchanged|||
-|EX-05 Missing optional / expected payload fields|Receive a known payload JSON missing one or more fields|Deserialization succeeds with default field values, or the message is ignored safely without crashing|||
-|EX-06 Handshake robustness|Client repeatedly sends `HELLO` before `HELLO_ACK`, or host receives duplicate `HELLO` after already connecting|Connection state stays stable; no crash or repeated connect callback storm occurs|||
+|EX-01 Malformed outer JSON|Receive bytes that are not valid `LanMessage` JSON|Parsing fails safely; no crash occurs|Malformed outer JSON failed safely without crashing the client.|Pass|
+|EX-02 Missing `type` in outer message|Deserialize a `LanMessage` with empty or missing `type`|Message is ignored safely|Message missing `type` was ignored safely with no side effects.|Pass|
+|EX-03 Self-sent message is filtered|Receive a valid message whose `playerId` equals `_localPlayerId`|Message is ignored and does not mutate remote state|Self-sent message filtering worked correctly and did not mutate remote state.|Pass|
+|EX-04 Malformed payload JSON|Receive a known message type with invalid payload JSON|`FromJson` failure is caught; no crash occurs and pending state is unchanged|Malformed payload JSON was handled safely with no crash and no pending-state corruption.|Pass|
+|EX-05 Missing optional / expected payload fields|Receive a known payload JSON missing one or more fields|Deserialization succeeds with default field values, or the message is ignored safely without crashing|Missing-field payloads either fell back safely or were ignored without crashing.|Pass|
+|EX-06 Handshake robustness|Client repeatedly sends `HELLO` before `HELLO_ACK`, or host receives duplicate `HELLO` after already connecting|Connection state stays stable; no crash or repeated connect callback storm occurs|Repeated handshake traffic did not destabilize connection state or trigger callback storms.|Pass|
 
 
 ---
