@@ -4,6 +4,7 @@ namespace Project.Networking
     {
         None = 0,
         Host = 1,
-        Client = 2
+        Client = 2,
+        Spectator = 3
     }
 }

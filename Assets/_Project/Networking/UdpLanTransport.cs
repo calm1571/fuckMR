@@ -9,12 +9,18 @@ namespace Project.Networking
 {
     public sealed class UdpLanTransport
     {
+        private sealed class HostPeerInfo
+        {
+            public IPEndPoint endpoint;
+            public NetworkRole role;
+        }
+
         private readonly Queue<LanMessage> _inbox = new Queue<LanMessage>();
         private readonly object _inboxLock = new object();
+        private readonly Dictionary<string, HostPeerInfo> _hostPeers = new Dictionary<string, HostPeerInfo>();
 
         private UdpClient _udpClient;
-        private IPEndPoint _peerEndpoint;
-        private IPEndPoint _hostEndpoint;
+        private IPEndPoint _serverEndpoint;
         private string _localPlayerId;
         private NetworkRole _role = NetworkRole.None;
         private float _lastHelloTime;
@@ -25,6 +31,7 @@ namespace Project.Networking
 
         public bool IsConnected => _connected;
         public NetworkRole Role => _role;
+        public int TotalPeerCount => _role == NetworkRole.Host ? _hostPeers.Count : (_connected ? 1 : 0);
 
         public void StartHost(int port, string localPlayerId)
         {
@@ -41,17 +48,12 @@ namespace Project.Networking
 
         public void StartClient(int port, string localPlayerId, string hostIp)
         {
-            Stop();
-            _localPlayerId = localPlayerId;
-            _role = NetworkRole.Client;
-            _connected = false;
+            StartPeer(port, localPlayerId, hostIp, NetworkRole.Client);
+        }
 
-            _udpClient = new UdpClient(0);
-            _udpClient.EnableBroadcast = true;
-            _hostEndpoint = new IPEndPoint(IPAddress.Parse(hostIp), port);
-            BeginReceive();
-            SendHello();
-            Debug.Log($"M3 Net: Client started. Host={hostIp}:{port}");
+        public void StartSpectator(int port, string localPlayerId, string hostIp)
+        {
+            StartPeer(port, localPlayerId, hostIp, NetworkRole.Spectator);
         }
 
         public void Tick(float unscaledTime)
@@ -61,7 +63,9 @@ namespace Project.Networking
                 return;
             }
 
-            if (_role == NetworkRole.Client && !_connected && unscaledTime - _lastHelloTime > 1f)
+            if ((_role == NetworkRole.Client || _role == NetworkRole.Spectator) &&
+                !_connected &&
+                unscaledTime - _lastHelloTime > 1f)
             {
                 SendHello();
             }
@@ -86,6 +90,30 @@ namespace Project.Networking
             }
         }
 
+        public int GetPeerCount(NetworkRole role)
+        {
+            if (_role != NetworkRole.Host)
+            {
+                return _connected && role == NetworkRole.Host ? 1 : 0;
+            }
+
+            var count = 0;
+            foreach (var peer in _hostPeers.Values)
+            {
+                if (peer.role == role)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        public bool HasPeer(NetworkRole role)
+        {
+            return GetPeerCount(role) > 0;
+        }
+
         public void SendPose(PosePayload payload)
         {
             if (!_connected || payload == null)
@@ -93,14 +121,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.Pose,
-                playerId = _localPlayerId,
-                payload = JsonUtility.ToJson(payload)
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.Pose, JsonUtility.ToJson(payload)));
         }
 
         public void SendStartCalibration()
@@ -110,14 +131,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.StartCalibration,
-                playerId = _localPlayerId,
-                payload = string.Empty
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.StartCalibration, string.Empty));
         }
 
         public void SendWorldRootSync(WorldRootSyncPayload payload)
@@ -127,14 +141,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.WorldRootSync,
-                playerId = _localPlayerId,
-                payload = JsonUtility.ToJson(payload)
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.WorldRootSync, JsonUtility.ToJson(payload)));
         }
 
         public void SendShoot(ShootPayload payload)
@@ -144,14 +151,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.Shoot,
-                playerId = _localPlayerId,
-                payload = JsonUtility.ToJson(payload)
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.Shoot, JsonUtility.ToJson(payload)));
         }
 
         public void SendShield(ShieldPayload payload)
@@ -161,14 +161,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.Shield,
-                playerId = _localPlayerId,
-                payload = JsonUtility.ToJson(payload)
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.Shield, JsonUtility.ToJson(payload)));
         }
 
         public void SendHpUpdate(HpUpdatePayload payload)
@@ -178,14 +171,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.HpUpdate,
-                playerId = _localPlayerId,
-                payload = JsonUtility.ToJson(payload)
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.HpUpdate, JsonUtility.ToJson(payload)));
         }
 
         public void SendMatchResult(MatchResultPayload payload)
@@ -195,14 +181,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.MatchResult,
-                playerId = _localPlayerId,
-                payload = JsonUtility.ToJson(payload)
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.MatchResult, JsonUtility.ToJson(payload)));
         }
 
         public void SendSharedAnchor(SharedAnchorPayload payload)
@@ -212,14 +191,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.SharedAnchor,
-                playerId = _localPlayerId,
-                payload = JsonUtility.ToJson(payload)
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.SharedAnchor, JsonUtility.ToJson(payload)));
         }
 
         public void SendStartPlaying()
@@ -229,14 +201,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.StartPlaying,
-                playerId = _localPlayerId,
-                payload = string.Empty
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.StartPlaying, string.Empty));
         }
 
         public void SendCalibrationReady(CalibrationReadyPayload payload)
@@ -246,14 +211,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.CalibrationReady,
-                playerId = _localPlayerId,
-                payload = JsonUtility.ToJson(payload)
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.CalibrationReady, JsonUtility.ToJson(payload)));
         }
 
         public void SendRemoteAlignment(RemoteAlignmentPayload payload)
@@ -263,14 +221,7 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.RemoteAlignment,
-                playerId = _localPlayerId,
-                payload = JsonUtility.ToJson(payload)
-            };
-
-            Send(message);
+            Send(BuildMessage(LanMessageTypes.RemoteAlignment, JsonUtility.ToJson(payload)));
         }
 
         public void SendRematchReady(RematchReadyPayload payload)
@@ -280,23 +231,46 @@ namespace Project.Networking
                 return;
             }
 
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.RematchReady,
-                playerId = _localPlayerId,
-                payload = JsonUtility.ToJson(payload)
-            };
+            Send(BuildMessage(LanMessageTypes.RematchReady, JsonUtility.ToJson(payload)));
+        }
 
-            Send(message);
+        public void SendSpectatorVote(SpectatorVotePayload payload)
+        {
+            if (!_connected || payload == null || string.IsNullOrEmpty(payload.targetRole))
+            {
+                return;
+            }
+
+            Send(BuildMessage(LanMessageTypes.SpectatorVote, JsonUtility.ToJson(payload)));
+        }
+
+        public void SendObstacleSpawnRequest(ObstacleSpawnRequestPayload payload)
+        {
+            if (!_connected || payload == null || string.IsNullOrEmpty(payload.anchorType))
+            {
+                return;
+            }
+
+            Send(BuildMessage(LanMessageTypes.ObstacleSpawnRequest, JsonUtility.ToJson(payload)));
+        }
+
+        public void SendObstacleState(ObstacleStatePayload payload)
+        {
+            if (!_connected || payload == null)
+            {
+                return;
+            }
+
+            Send(BuildMessage(LanMessageTypes.ObstacleState, JsonUtility.ToJson(payload)));
         }
 
         public void Stop()
         {
             _role = NetworkRole.None;
             _connected = false;
-            _peerEndpoint = null;
-            _hostEndpoint = null;
+            _serverEndpoint = null;
             _lastHelloTime = 0f;
+            _hostPeers.Clear();
 
             if (_udpClient != null)
             {
@@ -317,17 +291,36 @@ namespace Project.Networking
             }
         }
 
+        private void StartPeer(int port, string localPlayerId, string hostIp, NetworkRole role)
+        {
+            Stop();
+            _localPlayerId = localPlayerId;
+            _role = role;
+            _connected = false;
+
+            _udpClient = new UdpClient(0);
+            _udpClient.EnableBroadcast = true;
+            _serverEndpoint = new IPEndPoint(IPAddress.Parse(hostIp), port);
+            BeginReceive();
+            SendHello();
+            Debug.Log($"M3 Net: {_role} started. Host={hostIp}:{port}");
+        }
+
+        private LanMessage BuildMessage(string type, string payload)
+        {
+            return new LanMessage
+            {
+                type = type,
+                playerId = _localPlayerId,
+                senderRole = _role.ToString(),
+                payload = payload
+            };
+        }
+
         private void SendHello()
         {
             _lastHelloTime = Time.unscaledTime;
-            var message = new LanMessage
-            {
-                type = LanMessageTypes.Hello,
-                playerId = _localPlayerId,
-                payload = string.Empty
-            };
-
-            Send(message, _hostEndpoint);
+            Send(BuildMessage(LanMessageTypes.Hello, string.Empty), _serverEndpoint);
         }
 
         private void BeginReceive()
@@ -389,6 +382,7 @@ namespace Project.Networking
             }
 
             HandleHandshake(message, remoteEndpoint);
+            RelayIfNeeded(message, remoteEndpoint);
             lock (_inboxLock)
             {
                 _inbox.Enqueue(message);
@@ -399,24 +393,44 @@ namespace Project.Networking
         {
             if (_role == NetworkRole.Host && message.type == LanMessageTypes.Hello)
             {
-                if (_peerEndpoint == null)
+                var key = remoteEndpoint.ToString();
+                _hostPeers[key] = new HostPeerInfo
                 {
-                    _peerEndpoint = remoteEndpoint;
-                    var ack = new LanMessage
-                    {
-                        type = LanMessageTypes.HelloAck,
-                        playerId = _localPlayerId,
-                        payload = string.Empty
-                    };
-                    Send(ack, _peerEndpoint);
-                    SetConnected();
-                }
-            }
-            else if (_role == NetworkRole.Client && message.type == LanMessageTypes.HelloAck)
-            {
-                _peerEndpoint = remoteEndpoint;
+                    endpoint = remoteEndpoint,
+                    role = ParseRole(message.senderRole)
+                };
+
+                var ack = BuildMessage(LanMessageTypes.HelloAck, string.Empty);
+                Send(ack, remoteEndpoint);
                 SetConnected();
             }
+            else if ((_role == NetworkRole.Client || _role == NetworkRole.Spectator) &&
+                     message.type == LanMessageTypes.HelloAck)
+            {
+                _serverEndpoint = remoteEndpoint;
+                SetConnected();
+            }
+        }
+
+        private void RelayIfNeeded(LanMessage message, IPEndPoint sourceEndpoint)
+        {
+            if (_role != NetworkRole.Host)
+            {
+                return;
+            }
+
+            if (message.type == LanMessageTypes.Hello || message.type == LanMessageTypes.HelloAck)
+            {
+                return;
+            }
+
+            var senderRole = ParseRole(message.senderRole);
+            if (senderRole != NetworkRole.Client)
+            {
+                return;
+            }
+
+            SendToAllPeersExcept(message, sourceEndpoint);
         }
 
         private void SetConnected()
@@ -437,8 +451,41 @@ namespace Project.Networking
                 return;
             }
 
-            var target = endpoint ?? _peerEndpoint;
+            if (_role == NetworkRole.Host && endpoint == null)
+            {
+                foreach (var peer in _hostPeers.Values)
+                {
+                    SendToEndpoint(message, peer.endpoint);
+                }
+
+                return;
+            }
+
+            var target = endpoint ?? _serverEndpoint;
             if (target == null)
+            {
+                return;
+            }
+
+            SendToEndpoint(message, target);
+        }
+
+        private void SendToAllPeersExcept(LanMessage message, IPEndPoint excludedEndpoint)
+        {
+            foreach (var peer in _hostPeers.Values)
+            {
+                if (excludedEndpoint != null && EndpointsEqual(peer.endpoint, excludedEndpoint))
+                {
+                    continue;
+                }
+
+                SendToEndpoint(message, peer.endpoint);
+            }
+        }
+
+        private void SendToEndpoint(LanMessage message, IPEndPoint endpoint)
+        {
+            if (_udpClient == null || message == null || endpoint == null)
             {
                 return;
             }
@@ -447,12 +494,27 @@ namespace Project.Networking
             var bytes = Encoding.UTF8.GetBytes(json);
             try
             {
-                _udpClient.Send(bytes, bytes.Length, target);
+                _udpClient.Send(bytes, bytes.Length, endpoint);
             }
             catch (Exception e)
             {
                 Debug.LogWarning($"M3 Net: Send failed: {e.Message}");
             }
+        }
+
+        private static NetworkRole ParseRole(string value)
+        {
+            return Enum.TryParse(value, true, out NetworkRole parsed) ? parsed : NetworkRole.None;
+        }
+
+        private static bool EndpointsEqual(IPEndPoint a, IPEndPoint b)
+        {
+            if (a == null || b == null)
+            {
+                return false;
+            }
+
+            return Equals(a.Address, b.Address) && a.Port == b.Port;
         }
     }
 }

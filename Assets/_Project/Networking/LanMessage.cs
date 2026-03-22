@@ -8,6 +8,7 @@ namespace Project.Networking
     {
         public string type;
         public string playerId;
+        public string senderRole;
         public string payload;
     }
 
@@ -88,6 +89,32 @@ namespace Project.Networking
     }
 
     [Serializable]
+    public sealed class SpectatorVotePayload
+    {
+        public string targetRole;
+    }
+
+    [Serializable]
+    public sealed class ObstacleSpawnRequestPayload
+    {
+        public string anchorType;
+        public Vector3 localOffset;
+        public float yawOffset;
+    }
+
+    [Serializable]
+    public sealed class ObstacleStatePayload
+    {
+        public int obstacleId;
+        public Vector3 position;
+        public Quaternion rotation;
+        public Vector3 size;
+        public float currentHp;
+        public float maxHp;
+        public bool active;
+    }
+
+    [Serializable]
     public struct PoseData
     {
         public Vector3 position;
@@ -110,5 +137,8 @@ namespace Project.Networking
         public const string CalibrationReady = "CALIBRATION_READY";
         public const string RemoteAlignment = "REMOTE_ALIGNMENT";
         public const string RematchReady = "REMATCH_READY";
+        public const string SpectatorVote = "SPECTATOR_VOTE";
+        public const string ObstacleSpawnRequest = "OBSTACLE_SPAWN_REQUEST";
+        public const string ObstacleState = "OBSTACLE_STATE";
     }
 }

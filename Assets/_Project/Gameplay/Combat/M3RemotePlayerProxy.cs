@@ -77,6 +77,11 @@ namespace Project.Gameplay.Combat
             _hpBarForeground.localPosition = new Vector3((scaleX - 1f) * 0.5f, 0f, HpBarFrontOffsetLocal);
         }
 
+        public void Hide()
+        {
+            SetVisible(false);
+        }
+
         private void EnsureProxyObjects()
         {
             if (_initialized)

@@ -18,7 +18,7 @@ namespace Project.MRWorld
         {
             _offsetRoot = offsetRoot;
             _moveSpeed = Mathf.Max(0.05f, moveSpeed);
-            _rotateSpeed = Mathf.Clamp(rotateSpeed * 0.32f, 10f, 24f);
+            _rotateSpeed = Mathf.Clamp(rotateSpeed * 0.64f, 20f, 48f);
             _heightSpeed = Mathf.Max(0.02f, heightSpeed);
         }
 

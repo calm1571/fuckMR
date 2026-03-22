@@ -14,7 +14,7 @@ namespace Project.Core
         private readonly float _distance;
         private readonly float _verticalOffset;
 
-        public RoleSelectView(Transform cameraTransform, Action onHost, Action onClient, Action onBack, float distance, float verticalOffset)
+        public RoleSelectView(Transform cameraTransform, Action onHost, Action onClient, Action onSpectator, Action onBack, float distance, float verticalOffset)
         {
             _cameraTransform = cameraTransform;
             _distance = Mathf.Max(1.8f, distance);
@@ -22,7 +22,7 @@ namespace Project.Core
             _root = new GameObject("RoleSelectRoot");
 
             EnsureEventSystem();
-            BuildCanvas(onHost, onClient, onBack);
+            BuildCanvas(onHost, onClient, onSpectator, onBack);
             SetVisible(false);
         }
 
@@ -48,7 +48,7 @@ namespace Project.Core
             _root.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
 
-        private void BuildCanvas(Action onHost, Action onClient, Action onBack)
+        private void BuildCanvas(Action onHost, Action onClient, Action onSpectator, Action onBack)
         {
             var canvasGo = new GameObject(
                 "RoleSelectCanvas",
@@ -73,9 +73,10 @@ namespace Project.Core
 
             var panel = CreateImage("Panel", canvasRect, Vector2.zero, new Vector2(940f, 720f), new Color(0.08f, 0.11f, 0.15f, 0.78f));
             CreateTitle(panel, "Role Select");
-            CreateButton(panel, "Host (PlayerA)", new Vector2(0f, 100f), onHost);
-            CreateButton(panel, "Client (PlayerB)", new Vector2(0f, -70f), onClient);
-            CreateButton(panel, "Back", new Vector2(0f, -250f), onBack);
+            CreateButton(panel, "Host (PlayerA)", new Vector2(0f, 140f), onHost);
+            CreateButton(panel, "Client (PlayerB)", new Vector2(0f, -10f), onClient);
+            CreateButton(panel, "Spectator", new Vector2(0f, -160f), onSpectator);
+            CreateButton(panel, "Back", new Vector2(0f, -320f), onBack);
         }
 
         private static RectTransform CreateImage(string name, RectTransform parent, Vector2 anchoredPos, Vector2 size, Color color)

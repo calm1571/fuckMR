@@ -7,9 +7,10 @@
         RoleSelect = 2,
         LobbyHost = 3,
         LobbyClient = 4,
-        Calibration = 5,
-        Playing = 6,
-        Result = 7,
-        BackToMenu = 8
+        LobbySpectator = 5,
+        Calibration = 6,
+        Playing = 7,
+        Result = 8,
+        BackToMenu = 9
     }
 }

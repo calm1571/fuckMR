@@ -9,7 +9,7 @@ namespace Project.Core
 {
     public sealed class MainMenuView
     {
-        private const string BuildStamp = "BUILD: MR-RESULT-RETRY-V5";
+        private const string BuildStamp = "BUILD: MR-SPECTATOR-WALL-V1";
         private readonly GameObject _root;
         private readonly Transform _cameraTransform;
         private readonly float _distance;
