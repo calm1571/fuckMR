@@ -25,6 +25,7 @@ namespace Project.Networking
         private NetworkRole _role = NetworkRole.None;
         private float _lastHelloTime;
         private bool _connected;
+        private string _lastDiagnostic = "Idle";
 
         public event Action Connected;
         public event Action<LanMessage> MessageReceived;
@@ -32,6 +33,7 @@ namespace Project.Networking
         public bool IsConnected => _connected;
         public NetworkRole Role => _role;
         public int TotalPeerCount => _role == NetworkRole.Host ? _hostPeers.Count : (_connected ? 1 : 0);
+        public string LastDiagnostic => _lastDiagnostic;
 
         public void StartHost(int port, string localPlayerId)
         {
@@ -43,6 +45,7 @@ namespace Project.Networking
             _udpClient = new UdpClient(port);
             _udpClient.EnableBroadcast = true;
             BeginReceive();
+            SetDiagnostic($"Host listening on UDP {port}");
             Debug.Log($"M3 Net: Host started on UDP {port}");
         }
 
@@ -271,6 +274,7 @@ namespace Project.Networking
             _serverEndpoint = null;
             _lastHelloTime = 0f;
             _hostPeers.Clear();
+            _lastDiagnostic = "Idle";
 
             if (_udpClient != null)
             {
@@ -302,6 +306,7 @@ namespace Project.Networking
             _udpClient.EnableBroadcast = true;
             _serverEndpoint = new IPEndPoint(IPAddress.Parse(hostIp), port);
             BeginReceive();
+            SetDiagnostic($"{_role} boot -> host {hostIp}:{port}");
             SendHello();
             Debug.Log($"M3 Net: {_role} started. Host={hostIp}:{port}");
         }
@@ -320,6 +325,7 @@ namespace Project.Networking
         private void SendHello()
         {
             _lastHelloTime = Time.unscaledTime;
+            SetDiagnostic($"{_role} sent HELLO -> {_serverEndpoint}");
             Send(BuildMessage(LanMessageTypes.Hello, string.Empty), _serverEndpoint);
         }
 
@@ -400,6 +406,8 @@ namespace Project.Networking
                     role = ParseRole(message.senderRole)
                 };
 
+                SetDiagnostic($"Host received HELLO from {message.senderRole} @ {remoteEndpoint}");
+
                 var ack = BuildMessage(LanMessageTypes.HelloAck, string.Empty);
                 Send(ack, remoteEndpoint);
                 SetConnected();
@@ -408,6 +416,7 @@ namespace Project.Networking
                      message.type == LanMessageTypes.HelloAck)
             {
                 _serverEndpoint = remoteEndpoint;
+                SetDiagnostic($"{_role} received HELLO_ACK from {remoteEndpoint}");
                 SetConnected();
             }
         }
@@ -425,11 +434,14 @@ namespace Project.Networking
             }
 
             var senderRole = ParseRole(message.senderRole);
-            if (senderRole != NetworkRole.Client)
+            var shouldRelay = senderRole == NetworkRole.Client ||
+                              (senderRole == NetworkRole.Spectator && message.type == LanMessageTypes.RemoteAlignment);
+            if (!shouldRelay)
             {
                 return;
             }
 
+            SetDiagnostic($"Host relaying {message.type} from {message.senderRole}");
             SendToAllPeersExcept(message, sourceEndpoint);
         }
 
@@ -441,7 +453,20 @@ namespace Project.Networking
             }
 
             _connected = true;
+            SetDiagnostic(_role == NetworkRole.Host
+                ? $"Host connected. Peers={_hostPeers.Count}"
+                : $"{_role} connected to {_serverEndpoint}");
             Connected?.Invoke();
+        }
+
+        private void SetDiagnostic(string diagnostic)
+        {
+            if (string.IsNullOrWhiteSpace(diagnostic))
+            {
+                return;
+            }
+
+            _lastDiagnostic = diagnostic;
         }
 
         private void Send(LanMessage message, IPEndPoint endpoint = null)

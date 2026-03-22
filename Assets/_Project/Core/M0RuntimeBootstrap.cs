@@ -17,19 +17,15 @@ namespace Project.Core
     {
         private const string BuildStamp = "MR-SPECTATOR-WALL-V1";
         private const string ObstacleArenaAnchorType = "ArenaCenter";
+        private const string HostIpPlayerPrefsKey = "Project.Network.HostIp";
 
         private enum LiveCalibrationPhase
         {
             ClientAdjustHost = 0,
             HostAdjustClient = 1,
-            ReadyToPlay = 2
-        }
-
-        private enum SpectatorCalibrationPhase
-        {
-            AdjustHost = 0,
-            AdjustClient = 1,
-            ReadyToWatch = 2
+            SpectatorAdjustClient = 2,
+            SpectatorAdjustHost = 3,
+            HostFinalConfirm = 4
         }
 
         [SerializeField] private float menuDistance = 2.2f;
@@ -136,9 +132,10 @@ namespace Project.Core
         private LiveCalibrationPhase _liveCalibrationPhase;
         private bool _clientAlignmentConfirmed;
         private bool _hostAlignmentConfirmed;
+        private bool _spectatorClientAlignmentConfirmed;
+        private bool _spectatorHostAlignmentConfirmed;
         private bool _localRematchReady;
         private bool _remoteRematchReady;
-        private SpectatorCalibrationPhase _spectatorCalibrationPhase;
         private float _localSpectatorVoteCooldownUntil;
         private float _hostSpectatorVoteCooldownUntil;
         private readonly Dictionary<int, ObstacleStatePayload> _obstacleStates = new Dictionary<int, ObstacleStatePayload>();
@@ -164,7 +161,9 @@ namespace Project.Core
             }
 
             return (_selectedRole == NetworkRole.Client && _liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost) ||
-                   (_selectedRole == NetworkRole.Host && _liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient);
+                   (_selectedRole == NetworkRole.Host && _liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient) ||
+                   (_selectedRole == NetworkRole.Spectator && _liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustClient) ||
+                   (_selectedRole == NetworkRole.Spectator && _liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustHost);
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -218,9 +217,10 @@ namespace Project.Core
 
             var menuView = new MainMenuView(camera.transform, HandleStartClicked, OnExitClicked, menuDistance, menuVerticalOffset);
             _roleSelectView = new RoleSelectView(camera.transform, OnHostSelected, OnClientSelected, OnSpectatorSelected, HandleRoleSelectBackClicked, menuDistance, menuVerticalOffset);
+            hostIpForClient = LoadHostIpPreference(hostIpForClient);
             _lobbyHostView = new LobbyView(camera.transform, "Lobby Host", "Start Match", HandleHostStartMatchClicked, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
-            _lobbyClientView = new LobbyView(camera.transform, "Lobby Client", "Waiting Host", null, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
-            _lobbySpectatorView = new LobbyView(camera.transform, "Lobby Spectator", "Waiting Match", null, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
+            _lobbyClientView = new LobbyView(camera.transform, "Lobby Client", "Connect", HandleClientConnectClicked, HandleLobbyBackClicked, menuDistance, menuVerticalOffset, OnHostIpEdited, "Host IP");
+            _lobbySpectatorView = new LobbyView(camera.transform, "Lobby Spectator", "Connect", HandleSpectatorConnectClicked, HandleLobbyBackClicked, menuDistance, menuVerticalOffset, OnHostIpEdited, "Host IP");
             _calibrationView = new CalibrationView(camera.transform, HandleCalibrationConfirmClicked, HandleCalibrationBackClicked, menuDistance, menuVerticalOffset);
             _resultView = new LobbyView(camera.transform, "Result", "Retry", HandleResultRetryClicked, HandleResultBackToMenuClicked, menuDistance, menuVerticalOffset);
             _playerHudView = new M5PlayerHudView(camera.transform, hudDistance, hudLocalOffset);
@@ -567,19 +567,46 @@ namespace Project.Core
         private void OnClientSelected()
         {
             _selectedRole = NetworkRole.Client;
-            _networkCoordinator?.StartClient(hostIpForClient);
-            if (enableSharedSpatialAnchor)
-            {
-                StartCoroutine(WarmupSpatialAnchorProviderRoutine());
-            }
             _stateMachine?.ChangeState(AppStateId.LobbyClient);
         }
 
         private void OnSpectatorSelected()
         {
             _selectedRole = NetworkRole.Spectator;
-            _networkCoordinator?.StartSpectator(hostIpForClient);
             _stateMachine?.ChangeState(AppStateId.LobbySpectator);
+        }
+
+        private void HandleClientConnectClicked()
+        {
+            if (_selectedRole != NetworkRole.Client || _networkCoordinator == null)
+            {
+                return;
+            }
+
+            hostIpForClient = SanitizeHostIp(_lobbyClientView != null ? _lobbyClientView.GetInputValue() : hostIpForClient);
+            SaveHostIpPreference();
+            _networkCoordinator.StartClient(hostIpForClient);
+            if (enableSharedSpatialAnchor)
+            {
+                StartCoroutine(WarmupSpatialAnchorProviderRoutine());
+            }
+        }
+
+        private void HandleSpectatorConnectClicked()
+        {
+            if (_selectedRole != NetworkRole.Spectator || _networkCoordinator == null)
+            {
+                return;
+            }
+
+            hostIpForClient = SanitizeHostIp(_lobbySpectatorView != null ? _lobbySpectatorView.GetInputValue() : hostIpForClient);
+            SaveHostIpPreference();
+            _networkCoordinator.StartSpectator(hostIpForClient);
+        }
+
+        private void OnHostIpEdited(string value)
+        {
+            hostIpForClient = SanitizeHostIp(value);
         }
 
         private void HandleLobbyBackClicked()
@@ -614,7 +641,8 @@ namespace Project.Core
             }
 
             _lobbyHostView.SetStatus(_networkCoordinator.BuildLobbyStatus());
-            _lobbyHostView.SetPrimaryButton(_networkCoordinator.HasClientPeer ? "Start Match" : "Waiting Client...", _networkCoordinator.HasClientPeer);
+            var ready = _networkCoordinator.HasClientPeer && _networkCoordinator.HasSpectatorPeer;
+            _lobbyHostView.SetPrimaryButton(ready ? "Start Match" : "Waiting All Roles...", ready);
         }
 
         private void OnTickLobbyClient()
@@ -624,8 +652,13 @@ namespace Project.Core
                 return;
             }
 
+            _lobbyClientView.SetInputVisible(true);
+            if (string.IsNullOrWhiteSpace(_lobbyClientView.GetInputValue()))
+            {
+                _lobbyClientView.SetInputValue(hostIpForClient);
+            }
             _lobbyClientView.SetStatus(_networkCoordinator.BuildLobbyStatus());
-            _lobbyClientView.SetPrimaryButton("Waiting Host", false);
+            _lobbyClientView.SetPrimaryButton(_networkCoordinator.IsConnected ? "Reconnect" : "Connect", true);
         }
 
         private void OnTickLobbySpectator()
@@ -635,8 +668,13 @@ namespace Project.Core
                 return;
             }
 
+            _lobbySpectatorView.SetInputVisible(true);
+            if (string.IsNullOrWhiteSpace(_lobbySpectatorView.GetInputValue()))
+            {
+                _lobbySpectatorView.SetInputValue(hostIpForClient);
+            }
             _lobbySpectatorView.SetStatus(_networkCoordinator.BuildLobbyStatus());
-            _lobbySpectatorView.SetPrimaryButton("Waiting Match", false);
+            _lobbySpectatorView.SetPrimaryButton(_networkCoordinator.IsConnected ? "Reconnect" : "Connect", true);
 
             if (_networkCoordinator.IsConnected &&
                 _networkCoordinator.HasRemotePoseForRole(NetworkRole.Host) &&
@@ -648,7 +686,10 @@ namespace Project.Core
 
         private void HandleHostStartMatchClicked()
         {
-            if (_selectedRole != NetworkRole.Host || _networkCoordinator == null || !_networkCoordinator.HasClientPeer)
+            if (_selectedRole != NetworkRole.Host ||
+                _networkCoordinator == null ||
+                !_networkCoordinator.HasClientPeer ||
+                !_networkCoordinator.HasSpectatorPeer)
             {
                 return;
             }
@@ -660,7 +701,7 @@ namespace Project.Core
 
         private void OnRemoteCalibrationRequested()
         {
-            if (_selectedRole == NetworkRole.Client)
+            if (_selectedRole == NetworkRole.Client || _selectedRole == NetworkRole.Spectator)
             {
                 _stateMachine?.ChangeState(AppStateId.Calibration);
             }
@@ -668,38 +709,6 @@ namespace Project.Core
 
         private void HandleCalibrationConfirmClicked()
         {
-            if (_selectedRole == NetworkRole.Spectator)
-            {
-                if (_spectatorCalibrationPhase == SpectatorCalibrationPhase.AdjustHost)
-                {
-                    if (_networkCoordinator == null || !_networkCoordinator.HasRemotePoseForRole(NetworkRole.Host))
-                    {
-                        _calibrationView?.SetStatus("Waiting Host avatar stream before spectator host adjustment.");
-                        return;
-                    }
-
-                    _spectatorCalibrationPhase = SpectatorCalibrationPhase.AdjustClient;
-                    _calibrationView?.SetStatus("Spectator host step confirmed.\nPhase 2/3: Adjust Client avatar.");
-                    return;
-                }
-
-                if (_spectatorCalibrationPhase == SpectatorCalibrationPhase.AdjustClient)
-                {
-                    if (_networkCoordinator == null || !_networkCoordinator.HasRemotePoseForRole(NetworkRole.Client))
-                    {
-                        _calibrationView?.SetStatus("Waiting Client avatar stream before spectator client adjustment.");
-                        return;
-                    }
-
-                    _spectatorCalibrationPhase = SpectatorCalibrationPhase.ReadyToWatch;
-                    _calibrationView?.SetStatus("Spectator client step confirmed.\nPress Confirm to start watching.");
-                    return;
-                }
-
-                _stateMachine?.ChangeState(AppStateId.Playing);
-                return;
-            }
-
             if (_selectedRole == NetworkRole.Client && !_clientWorldRootLocked)
             {
                 if (!IsAprilTagCalibrationActive)
@@ -719,13 +728,11 @@ namespace Project.Core
                             _remoteAlignmentRoot != null ? _remoteAlignmentRoot.rotation : Quaternion.identity,
                             true,
                             LiveCalibrationPhase.ClientAdjustHost.ToString());
-                        _calibrationView?.SetStatus("Client step confirmed.\nWaiting for host to adjust your avatar.");
+                        _calibrationView?.SetStatus("Client step confirmed.\nWaiting for host to adjust Client avatar.");
                         return;
                     }
 
-                    _calibrationView?.SetStatus(_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient
-                        ? "Waiting for host to finish adjustment."
-                        : "Waiting for host final Confirm to start match.");
+                    _calibrationView?.SetStatus(BuildLiveCalibrationWaitingStatus());
                     return;
                 }
 
@@ -756,19 +763,25 @@ namespace Project.Core
                         }
 
                         _hostAlignmentConfirmed = true;
-                        _liveCalibrationPhase = LiveCalibrationPhase.ReadyToPlay;
+                        _liveCalibrationPhase = LiveCalibrationPhase.SpectatorAdjustClient;
                         _networkCoordinator?.NotifyRemoteAlignment(
                             _remoteAlignmentRoot != null ? _remoteAlignmentRoot.position : Vector3.zero,
                             _remoteAlignmentRoot != null ? _remoteAlignmentRoot.rotation : Quaternion.identity,
                             true,
                             LiveCalibrationPhase.HostAdjustClient.ToString());
-                        _calibrationView?.SetStatus("Host step confirmed.\nPress Confirm again to start match.");
+                        _calibrationView?.SetStatus("Host step confirmed.\nWaiting for spectator to adjust Client avatar.");
                         return;
                     }
 
-                    if (!_clientAlignmentConfirmed || !_hostAlignmentConfirmed)
+                    if (_liveCalibrationPhase == LiveCalibrationPhase.HostFinalConfirm &&
+                        (!_clientAlignmentConfirmed || !_hostAlignmentConfirmed || !_spectatorClientAlignmentConfirmed || !_spectatorHostAlignmentConfirmed))
                     {
-                        _calibrationView?.SetStatus("Calibration steps incomplete.\nClient and Host must both confirm their own view.");
+                        _calibrationView?.SetStatus("Calibration steps incomplete.\nAll four adjustment steps must be confirmed.");
+                        return;
+                    }
+                    else if (_liveCalibrationPhase != LiveCalibrationPhase.HostFinalConfirm)
+                    {
+                        _calibrationView?.SetStatus(BuildLiveCalibrationWaitingStatus());
                         return;
                     }
                 }
@@ -828,6 +841,50 @@ namespace Project.Core
                 }
             }
 
+            if (_selectedRole == NetworkRole.Spectator && !IsAprilTagCalibrationActive)
+            {
+                if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustClient)
+                {
+                    if (_networkCoordinator == null || !_networkCoordinator.HasRemotePoseForRole(NetworkRole.Client))
+                    {
+                        _calibrationView?.SetStatus("Waiting Client avatar stream before spectator client adjustment.");
+                        return;
+                    }
+
+                    _spectatorClientAlignmentConfirmed = true;
+                    _liveCalibrationPhase = LiveCalibrationPhase.SpectatorAdjustHost;
+                    _networkCoordinator?.NotifyRemoteAlignment(
+                        _spectatorClientAlignmentRoot != null ? _spectatorClientAlignmentRoot.position : Vector3.zero,
+                        _spectatorClientAlignmentRoot != null ? _spectatorClientAlignmentRoot.rotation : Quaternion.identity,
+                        true,
+                        LiveCalibrationPhase.SpectatorAdjustClient.ToString());
+                    _calibrationView?.SetStatus("Spectator client step confirmed.\nNow adjust Host avatar.");
+                    return;
+                }
+
+                if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustHost)
+                {
+                    if (_networkCoordinator == null || !_networkCoordinator.HasRemotePoseForRole(NetworkRole.Host))
+                    {
+                        _calibrationView?.SetStatus("Waiting Host avatar stream before spectator host adjustment.");
+                        return;
+                    }
+
+                    _spectatorHostAlignmentConfirmed = true;
+                    _liveCalibrationPhase = LiveCalibrationPhase.HostFinalConfirm;
+                    _networkCoordinator?.NotifyRemoteAlignment(
+                        _spectatorHostAlignmentRoot != null ? _spectatorHostAlignmentRoot.position : Vector3.zero,
+                        _spectatorHostAlignmentRoot != null ? _spectatorHostAlignmentRoot.rotation : Quaternion.identity,
+                        true,
+                        LiveCalibrationPhase.SpectatorAdjustHost.ToString());
+                    _calibrationView?.SetStatus("Spectator host step confirmed.\nWaiting for host final Confirm.");
+                    return;
+                }
+
+                _calibrationView?.SetStatus(BuildLiveCalibrationWaitingStatus());
+                return;
+            }
+
             if (_selectedRole == NetworkRole.Host)
             {
                 _networkCoordinator?.NotifyHostStartPlaying();
@@ -867,10 +924,11 @@ namespace Project.Core
             _hasMarkerSample = false;
             _localCalibrationReady = false;
             _remoteCalibrationReady = false;
-            _liveCalibrationPhase = IsAprilTagCalibrationActive ? LiveCalibrationPhase.ReadyToPlay : LiveCalibrationPhase.ClientAdjustHost;
-            _spectatorCalibrationPhase = SpectatorCalibrationPhase.AdjustHost;
+            _liveCalibrationPhase = IsAprilTagCalibrationActive ? LiveCalibrationPhase.HostFinalConfirm : LiveCalibrationPhase.ClientAdjustHost;
             _clientAlignmentConfirmed = false;
             _hostAlignmentConfirmed = false;
+            _spectatorClientAlignmentConfirmed = false;
+            _spectatorHostAlignmentConfirmed = false;
             _localCalibrationReadySince = -1f;
             _lastCalibrationReadySendTime = -999f;
             _lastSentCalibrationReady = false;
@@ -902,14 +960,14 @@ namespace Project.Core
             _calibrationView?.SetConfirmText(IsAprilTagCalibrationActive ? "Confirm" : "Confirm Step");
             if (_selectedRole == NetworkRole.Spectator)
             {
-                _calibrationView?.SetStatus("Phase 1/3: Spectator adjusts Host avatar.\nUse right stick + X/Y + A/B, then press Confirm Step.");
-                _calibrationView?.SetDetectionStatus("<color=#6CA9D9>Spectator local calibration. Step 1: Adjust Host. Step 2: Adjust Client.</color>");
+                _calibrationView?.SetStatus("Phase 1/5: Waiting for Client to adjust Host avatar.");
+                _calibrationView?.SetDetectionStatus("<color=#6CA9D9>Five-step serial calibration. Only the active device can adjust each phase.</color>");
             }
             else if (_selectedRole == NetworkRole.Client)
             {
                 _calibrationView?.SetStatus(IsAprilTagCalibrationActive
                     ? "Waiting host confirmation...\nAuto AprilTag localization in progress."
-                    : "Phase 1/3: Adjust Host avatar on Client.\nFine-tune, then press Confirm Step.");
+                    : "Phase 1/5: Client adjusts Host avatar.\nFine-tune, then press Confirm Step.");
                 _calibrationView?.SetDetectionStatus(IsAprilTagCalibrationActive
                     ? "<color=#6CA9D9>Detection: searching AprilTag automatically...</color>"
                     : "<color=#6CA9D9>Detection: AprilTag disabled. Live remote alignment only.</color>");
@@ -918,7 +976,7 @@ namespace Project.Core
             {
                 _calibrationView?.SetStatus(IsAprilTagCalibrationActive
                     ? (_worldRootController != null ? _worldRootController.BuildStatusText() : "WorldRoot unavailable")
-                    : "Phase 1/3: Waiting for Client to adjust Host avatar.");
+                    : "Phase 1/5: Waiting for Client to adjust Host avatar.");
                 _calibrationView?.SetDetectionStatus(IsAprilTagCalibrationActive
                     ? "<color=#6CA9D9>Detection: searching AprilTag automatically...</color>"
                     : "<color=#6CA9D9>Detection: AprilTag disabled. Use live refine and Confirm when ready.</color>");
@@ -969,21 +1027,36 @@ namespace Project.Core
         private void OnTickCalibration()
         {
             var now = Time.unscaledTime;
-            if (_selectedRole == NetworkRole.Spectator)
-            {
-                TickSpectatorCalibration();
-                _calibrationView?.Tick();
-                return;
-            }
-
             if (!_clientWorldRootLocked && !IsAprilTagCalibrationActive && !disableAprilTagCalibrationTemporarily)
             {
                 _worldRootController?.Tick(Time.deltaTime);
             }
 
-            if (CanAdjustLiveRemoteAlignment() && _networkCoordinator != null && _networkCoordinator.HasRemotePose)
+            if (!IsAprilTagCalibrationActive && CanAdjustLiveRemoteAlignment())
             {
-                _remoteAlignmentController?.Tick(Time.deltaTime);
+                if (_selectedRole == NetworkRole.Client && _networkCoordinator != null && _networkCoordinator.HasRemotePose)
+                {
+                    _remoteAlignmentController?.Tick(Time.deltaTime);
+                }
+                else if (_selectedRole == NetworkRole.Host && _networkCoordinator != null && _networkCoordinator.HasRemotePose)
+                {
+                    _remoteAlignmentController?.Tick(Time.deltaTime);
+                }
+                else if (_selectedRole == NetworkRole.Spectator)
+                {
+                    if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustClient &&
+                        _networkCoordinator != null &&
+                        _networkCoordinator.HasRemotePoseForRole(NetworkRole.Client))
+                    {
+                        _spectatorClientAlignmentController?.Tick(Time.deltaTime);
+                    }
+                    else if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustHost &&
+                             _networkCoordinator != null &&
+                             _networkCoordinator.HasRemotePoseForRole(NetworkRole.Host))
+                    {
+                        _spectatorHostAlignmentController?.Tick(Time.deltaTime);
+                    }
+                }
             }
 
             if (IsAprilTagCalibrationActive && _markerTrackingSource != null)
@@ -1038,52 +1111,8 @@ namespace Project.Core
             }
             else
             {
-                if (_selectedRole == NetworkRole.Host)
-                {
-                    _calibrationView?.SetConfirmText(_liveCalibrationPhase == LiveCalibrationPhase.ReadyToPlay ? "Confirm" : "Confirm Step");
-                    string phaseText;
-                    if (_liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost)
-                    {
-                        phaseText = _clientAlignmentConfirmed
-                            ? "Phase 1/3 complete.\nPrepare to adjust Client avatar."
-                            : "Phase 1/3: Waiting for Client to align Host avatar and confirm.";
-                    }
-                    else if (_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient)
-                    {
-                        phaseText = "Phase 2/3: Host adjusts Client avatar.\nPress Confirm Step when done.";
-                    }
-                    else
-                    {
-                        phaseText = "Phase 3/3: Both steps locked.\nPress Confirm to start match.";
-                    }
-
-                    _calibrationView?.SetStatus($"Live remote alignment mode.\n{phaseText}\n{BuildRemoteAlignmentStatusText()}");
-                }
-                else if (_selectedRole == NetworkRole.Client)
-                {
-                    _calibrationView?.SetConfirmText(_liveCalibrationPhase == LiveCalibrationPhase.ReadyToPlay ? "Confirm" : "Confirm Step");
-                    string phaseText;
-                    if (_liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost)
-                    {
-                        phaseText = "Phase 1/3: Client adjusts Host avatar.\nPress Confirm Step when done.";
-                    }
-                    else if (_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient)
-                    {
-                        phaseText = _hostAlignmentConfirmed
-                            ? "Phase 2/3 complete.\nWaiting for host final Confirm."
-                            : "Phase 2/3: Host is adjusting your avatar.\nPlease wait.";
-                    }
-                    else
-                    {
-                        phaseText = "Phase 3/3: Waiting for host final Confirm.";
-                    }
-
-                    _calibrationView?.SetStatus($"Live remote alignment mode.\n{phaseText}\n{BuildRemoteAlignmentStatusText()}");
-                }
-                else
-                {
-                    _calibrationView?.SetStatus("Live remote alignment mode.");
-                }
+                _calibrationView?.SetConfirmText(_liveCalibrationPhase == LiveCalibrationPhase.HostFinalConfirm ? "Confirm" : "Confirm Step");
+                _calibrationView?.SetStatus($"Live remote alignment mode.\n{BuildLiveCalibrationPhaseStatus()}\n{BuildRemoteAlignmentStatusText()}");
             }
 
             if (IsAprilTagCalibrationActive &&
@@ -1173,7 +1202,7 @@ namespace Project.Core
         {
             if (_selectedRole == NetworkRole.Spectator)
             {
-                _localCalibrationReady = _spectatorCalibrationPhase == SpectatorCalibrationPhase.ReadyToWatch;
+                _localCalibrationReady = _spectatorClientAlignmentConfirmed && _spectatorHostAlignmentConfirmed;
                 _remoteCalibrationReady = false;
                 _localCalibrationReadySince = _localCalibrationReady ? now : -1f;
                 return;
@@ -1190,9 +1219,21 @@ namespace Project.Core
                 {
                     _localCalibrationReady = _selectedRole == NetworkRole.Host ? hasPose : _hostAlignmentConfirmed;
                 }
+                else if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustClient)
+                {
+                    _localCalibrationReady = _selectedRole == NetworkRole.Spectator
+                        ? (_networkCoordinator != null && _networkCoordinator.HasRemotePoseForRole(NetworkRole.Client))
+                        : _spectatorClientAlignmentConfirmed;
+                }
+                else if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustHost)
+                {
+                    _localCalibrationReady = _selectedRole == NetworkRole.Spectator
+                        ? (_networkCoordinator != null && _networkCoordinator.HasRemotePoseForRole(NetworkRole.Host))
+                        : _spectatorHostAlignmentConfirmed;
+                }
                 else
                 {
-                    _localCalibrationReady = _clientAlignmentConfirmed && _hostAlignmentConfirmed;
+                    _localCalibrationReady = _clientAlignmentConfirmed && _hostAlignmentConfirmed && _spectatorClientAlignmentConfirmed && _spectatorHostAlignmentConfirmed;
                 }
 
                 _localCalibrationReadySince = _localCalibrationReady ? now : -1f;
@@ -1367,7 +1408,25 @@ namespace Project.Core
                 payload.confirmed)
             {
                 _hostAlignmentConfirmed = true;
-                _liveCalibrationPhase = LiveCalibrationPhase.ReadyToPlay;
+                _liveCalibrationPhase = LiveCalibrationPhase.SpectatorAdjustClient;
+                return;
+            }
+
+            if (payload.senderRole == NetworkRole.Spectator.ToString() &&
+                payload.stage == LiveCalibrationPhase.SpectatorAdjustClient.ToString() &&
+                payload.confirmed)
+            {
+                _spectatorClientAlignmentConfirmed = true;
+                _liveCalibrationPhase = LiveCalibrationPhase.SpectatorAdjustHost;
+                return;
+            }
+
+            if (payload.senderRole == NetworkRole.Spectator.ToString() &&
+                payload.stage == LiveCalibrationPhase.SpectatorAdjustHost.ToString() &&
+                payload.confirmed)
+            {
+                _spectatorHostAlignmentConfirmed = true;
+                _liveCalibrationPhase = LiveCalibrationPhase.HostFinalConfirm;
             }
         }
 
@@ -2095,55 +2154,23 @@ namespace Project.Core
             UpdateSpectatorVisuals();
             _calibrationView?.SetConfirmVisible(true);
             _calibrationView?.SetDetectionStatus(BuildCalibrationDetectionText());
-
-            switch (_spectatorCalibrationPhase)
-            {
-                case SpectatorCalibrationPhase.AdjustHost:
-                    _calibrationView?.SetConfirmText("Confirm Step");
-                    if (_networkCoordinator != null && _networkCoordinator.HasRemotePoseForRole(NetworkRole.Host))
-                    {
-                        _spectatorHostAlignmentController?.Tick(Time.deltaTime);
-                        _calibrationView?.SetStatus($"Phase 1/3: Spectator adjusts Host avatar.\nUse right stick + X/Y + A/B, then press Confirm Step.\n{BuildRemoteAlignmentStatusText()}");
-                    }
-                    else
-                    {
-                        _calibrationView?.SetStatus("Phase 1/3: Waiting Host avatar stream...");
-                    }
-                    break;
-
-                case SpectatorCalibrationPhase.AdjustClient:
-                    _calibrationView?.SetConfirmText("Confirm Step");
-                    if (_networkCoordinator != null && _networkCoordinator.HasRemotePoseForRole(NetworkRole.Client))
-                    {
-                        _spectatorClientAlignmentController?.Tick(Time.deltaTime);
-                        _calibrationView?.SetStatus($"Phase 2/3: Spectator adjusts Client avatar.\nUse right stick + X/Y + A/B, then press Confirm Step.\n{BuildRemoteAlignmentStatusText()}");
-                    }
-                    else
-                    {
-                        _calibrationView?.SetStatus("Phase 2/3: Waiting Client avatar stream...");
-                    }
-                    break;
-
-                default:
-                    _calibrationView?.SetConfirmText("Confirm");
-                    _calibrationView?.SetStatus("Phase 3/3: Spectator local calibration complete.\nPress Confirm to start watching.");
-                    break;
-            }
+            _calibrationView?.SetConfirmText(_liveCalibrationPhase == LiveCalibrationPhase.HostFinalConfirm ? "Confirm" : "Confirm Step");
+            _calibrationView?.SetStatus($"Live remote alignment mode.\n{BuildLiveCalibrationPhaseStatus()}\n{BuildRemoteAlignmentStatusText()}");
         }
 
         private string BuildSpectatorAlignmentStatusText()
         {
             RemoteAlignmentController controller = null;
             string label = string.Empty;
-            if (_spectatorCalibrationPhase == SpectatorCalibrationPhase.AdjustHost)
+            if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustHost)
             {
                 controller = _spectatorHostAlignmentController;
-                label = "Host";
+                label = "Spectator -> Host";
             }
-            else if (_spectatorCalibrationPhase == SpectatorCalibrationPhase.AdjustClient)
+            else if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustClient)
             {
                 controller = _spectatorClientAlignmentController;
-                label = "Client";
+                label = "Spectator -> Client";
             }
 
             if (controller == null)
@@ -2152,6 +2179,38 @@ namespace Project.Core
             }
 
             return $"Target: {label}\n{controller.BuildStatusText()}";
+        }
+
+        private string BuildLiveCalibrationPhaseStatus()
+        {
+            switch (_liveCalibrationPhase)
+            {
+                case LiveCalibrationPhase.ClientAdjustHost:
+                    return _selectedRole == NetworkRole.Client
+                        ? "Phase 1/5: Client adjusts Host avatar.\nOnly Client can adjust. Press Confirm Step when done."
+                        : "Phase 1/5: Waiting for Client to adjust Host avatar.";
+                case LiveCalibrationPhase.HostAdjustClient:
+                    return _selectedRole == NetworkRole.Host
+                        ? "Phase 2/5: Host adjusts Client avatar.\nOnly Host can adjust. Press Confirm Step when done."
+                        : "Phase 2/5: Waiting for Host to adjust Client avatar.";
+                case LiveCalibrationPhase.SpectatorAdjustClient:
+                    return _selectedRole == NetworkRole.Spectator
+                        ? "Phase 3/5: Spectator adjusts Client avatar.\nOnly Spectator can adjust. Press Confirm Step when done."
+                        : "Phase 3/5: Waiting for Spectator to adjust Client avatar.";
+                case LiveCalibrationPhase.SpectatorAdjustHost:
+                    return _selectedRole == NetworkRole.Spectator
+                        ? "Phase 4/5: Spectator adjusts Host avatar.\nOnly Spectator can adjust. Press Confirm Step when done."
+                        : "Phase 4/5: Waiting for Spectator to adjust Host avatar.";
+                default:
+                    return _selectedRole == NetworkRole.Host
+                        ? "Phase 5/5: All four steps confirmed.\nOnly Host can press Confirm to start."
+                        : "Phase 5/5: Waiting for Host final Confirm.";
+            }
+        }
+
+        private string BuildLiveCalibrationWaitingStatus()
+        {
+            return BuildLiveCalibrationPhaseStatus();
         }
 
         private Vector3 TransformRemotePositionForDisplay(Vector3 rawPosition)
@@ -2741,7 +2800,7 @@ namespace Project.Core
 
             runtime = new WallObstacleRuntime($"WallObstacle_{payload.obstacleId}", payload.obstacleId, _obstacleVisualRoot, payload.size, isPreview: false);
             runtime.SetHp(payload.currentHp, payload.maxHp);
-            runtime.SetColliderEnabled(_selectedRole == NetworkRole.Host);
+            runtime.SetColliderEnabled(true);
             _obstacleVisuals[payload.obstacleId] = runtime;
             return runtime;
         }
@@ -2826,7 +2885,7 @@ namespace Project.Core
             right = Vector3.right;
             baseYaw = 0f;
 
-            if (!TryGetArenaHeadPositionsRaw(out var hostHead, out var clientHead))
+            if (!TryGetArenaHeadPositionsForAuthority(out var hostHead, out var clientHead))
             {
                 return false;
             }
@@ -2841,6 +2900,29 @@ namespace Project.Core
             forward = flatDelta.normalized;
             right = Vector3.Cross(Vector3.up, forward).normalized;
             baseYaw = Quaternion.LookRotation(forward, Vector3.up).eulerAngles.y;
+            return true;
+        }
+
+        private bool TryGetArenaHeadPositionsForAuthority(out Vector3 hostHead, out Vector3 clientHead)
+        {
+            hostHead = Vector3.zero;
+            clientHead = Vector3.zero;
+            if (_selectedRole != NetworkRole.Host)
+            {
+                return false;
+            }
+
+            if (Camera.main == null)
+            {
+                return false;
+            }
+
+            hostHead = Camera.main.transform.position;
+            if (!TryGetAlignedRemoteHeadPosition(out clientHead))
+            {
+                return false;
+            }
+
             return true;
         }
 
@@ -2967,6 +3049,23 @@ namespace Project.Core
         private float GetWallSpawnCooldown() => spectatorSupportConfig != null ? spectatorSupportConfig.wallSpawnCooldown : 2f;
         private int GetWallMaxActiveCount() => spectatorSupportConfig != null ? spectatorSupportConfig.wallMaxActiveCount : 2;
         private Vector3 GetWallSize() => spectatorSupportConfig != null ? spectatorSupportConfig.wallSize : new Vector3(1.6f, 1.35f, 0.12f);
+
+        private static string LoadHostIpPreference(string fallback)
+        {
+            var value = PlayerPrefs.GetString(HostIpPlayerPrefsKey, string.Empty);
+            return SanitizeHostIp(string.IsNullOrWhiteSpace(value) ? fallback : value);
+        }
+
+        private void SaveHostIpPreference()
+        {
+            PlayerPrefs.SetString(HostIpPlayerPrefsKey, SanitizeHostIp(hostIpForClient));
+            PlayerPrefs.Save();
+        }
+
+        private static string SanitizeHostIp(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+        }
 
         private void UpdateEnemyHealthBar()
         {

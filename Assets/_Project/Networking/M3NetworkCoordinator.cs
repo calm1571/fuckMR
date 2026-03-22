@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
+using System.Net.Sockets;
 using UnityEngine;
 
 namespace Project.Networking
@@ -72,7 +74,11 @@ namespace Project.Networking
         public bool HasRemotePose => _hasRemotePose;
         public PosePayload LatestRemotePose => _latestRemotePose;
         public bool HasClientPeer => _transport.HasPeer(NetworkRole.Client);
+        public bool HasSpectatorPeer => _transport.HasPeer(NetworkRole.Spectator);
         public int SpectatorCount => _transport.GetPeerCount(NetworkRole.Spectator);
+        public string LastNetworkDiagnostic => _transport.LastDiagnostic;
+        public string DefaultHostIp => _defaultHostIp;
+        public int Port => _port;
 
         public M3NetworkCoordinator(int port, string defaultHostIp, float poseSendRate)
         {
@@ -403,7 +409,7 @@ namespace Project.Networking
 
         public void NotifyRemoteAlignment(Vector3 position, Quaternion rotation, bool confirmed, string stage)
         {
-            if (Role == NetworkRole.None || !_transport.IsConnected || Role == NetworkRole.Spectator)
+            if (Role == NetworkRole.None || !_transport.IsConnected)
             {
                 return;
             }
@@ -493,17 +499,20 @@ namespace Project.Networking
             if (Role == NetworkRole.Host)
             {
                 var clientState = HasClientPeer ? "Client Connected" : "Waiting for client...";
-                return $"{clientState}\nSpectators: {SpectatorCount}";
+                var spectatorState = HasSpectatorPeer ? $"Spectator Connected ({SpectatorCount})" : "Waiting for spectator...";
+                return $"{clientState}\n{spectatorState}\nLocal IP: {GetLocalIpv4Address()}\nUDP: {_port}\nDiag: {LastNetworkDiagnostic}";
             }
 
             if (Role == NetworkRole.Client)
             {
-                return IsConnected ? "Connected to host" : $"Connecting to {_defaultHostIp}:{_port} ...";
+                return (IsConnected ? "Connected to host" : $"Connecting to {_defaultHostIp}:{_port} ...") +
+                       $"\nTarget Host IP: {_defaultHostIp}\nUDP: {_port}\nDiag: {LastNetworkDiagnostic}";
             }
 
             if (Role == NetworkRole.Spectator)
             {
-                return IsConnected ? "Connected to host as spectator" : $"Connecting to {_defaultHostIp}:{_port} ...";
+                return (IsConnected ? "Connected to host as spectator" : $"Connecting to {_defaultHostIp}:{_port} ...") +
+                       $"\nTarget Host IP: {_defaultHostIp}\nUDP: {_port}\nDiag: {LastNetworkDiagnostic}";
             }
 
             return "Network idle";
@@ -771,6 +780,27 @@ namespace Project.Networking
         private static NetworkRole ParseRole(string value)
         {
             return Enum.TryParse(value, true, out NetworkRole parsed) ? parsed : NetworkRole.None;
+        }
+
+        private static string GetLocalIpv4Address()
+        {
+            try
+            {
+                var host = Dns.GetHostEntry(Dns.GetHostName());
+                for (var i = 0; i < host.AddressList.Length; i++)
+                {
+                    var address = host.AddressList[i];
+                    if (address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(address))
+                    {
+                        return address.ToString();
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return "Unknown";
         }
     }
 }

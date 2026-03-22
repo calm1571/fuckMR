@@ -51,6 +51,27 @@ namespace Project.Gameplay.Combat
             }
         }
 
+        private void OnCollisionEnter(Collision collision)
+        {
+            if (collision == null)
+            {
+                return;
+            }
+
+            if (IsWallObstacleCollision(collision.collider))
+            {
+                Destroy(gameObject);
+            }
+        }
+
+        private void OnTriggerEnter(Collider other)
+        {
+            if (IsWallObstacleCollision(other))
+            {
+                Destroy(gameObject);
+            }
+        }
+
         private void EnsureRigidbody()
         {
             _rb = GetComponent<Rigidbody>();
@@ -63,6 +84,17 @@ namespace Project.Gameplay.Combat
             _rb.isKinematic = false;
             _rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             _rb.interpolation = RigidbodyInterpolation.Interpolate;
+        }
+
+        private static bool IsWallObstacleCollision(Collider collider)
+        {
+            if (collider == null)
+            {
+                return false;
+            }
+
+            return collider.GetComponent<WallObstacleColliderTag>() != null ||
+                   collider.GetComponentInParent<WallObstacleColliderTag>() != null;
         }
     }
 }
