@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -7,6 +7,9 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 主菜单世界空间 UI。
+    /// </summary>
     public sealed class MainMenuView
     {
         private const string BuildStamp = "BUILD: MR-SPECTATOR-WALL-V1";
@@ -212,3 +215,4 @@ namespace Project.Core
         }
     }
 }
+

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -7,6 +7,9 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// Spectator 运行时控制面板。
+    /// </summary>
     public sealed class SpectatorControlView
     {
         private readonly GameObject _root;
@@ -298,3 +301,4 @@ namespace Project.Core
         }
     }
 }
+

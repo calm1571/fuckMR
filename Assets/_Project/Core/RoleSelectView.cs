@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -7,6 +7,9 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 角色选择界面。
+    /// </summary>
     public sealed class RoleSelectView
     {
         private readonly GameObject _root;
@@ -196,3 +199,4 @@ namespace Project.Core
         }
     }
 }
+

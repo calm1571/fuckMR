@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -7,6 +7,9 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 通用 Lobby 世界空间 UI 视图。
+    /// </summary>
     public sealed class LobbyView
     {
         private readonly GameObject _root;
@@ -382,3 +385,4 @@ namespace Project.Core
         }
     }
 }
+

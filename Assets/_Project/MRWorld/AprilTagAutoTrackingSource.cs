@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Unity.XR.PICO.TOBSupport;
@@ -10,6 +10,9 @@ using Pose = UnityEngine.Pose;
 namespace Project.MRWorld
 {
     // Auto marker tracking using PICO readable camera frames + pluggable AprilTag detector.
+        /// <summary>
+    /// 基于 AprilTag 检测结果输出 Marker 位姿。
+    /// </summary>
     public sealed class AprilTagAutoTrackingSource : IMarkerTrackingSource
     {
         private readonly AprilTagTrackingConfig _config;
@@ -341,3 +344,4 @@ namespace Project.MRWorld
         }
     }
 }
+

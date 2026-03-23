@@ -1,7 +1,10 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Project.Gameplay.Combat
 {
+        /// <summary>
+    /// 始终可见的控制器激光指示器。
+    /// </summary>
     public sealed class M1AlwaysVisibleControllerLaser : MonoBehaviour
     {
         [SerializeField] private float length = 8f;
@@ -83,3 +86,4 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+

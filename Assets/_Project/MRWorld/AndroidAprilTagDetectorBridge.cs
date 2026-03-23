@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 
 namespace Project.MRWorld
@@ -12,6 +12,9 @@ namespace Project.MRWorld
     //   String detect(long rgbaPtr, int width, int height, int stride, String family, int id, float tagSizeMeters)
     // Returned JSON example:
     //   {"ok":true,"id":0,"tx":0.1,"ty":0.2,"tz":1.3,"qx":0,"qy":0,"qz":0,"qw":1,"confidence":0.92}
+        /// <summary>
+    /// Android 原生 AprilTag 检测桥接实现。
+    /// </summary>
     public sealed class AndroidAprilTagDetectorBridge : IAprilTagDetector
     {
         private const string JavaClassName = "com.project.apriltag.AprilTagBridge";
@@ -158,6 +161,9 @@ namespace Project.MRWorld
         }
 
         [Serializable]
+                /// <summary>
+        /// 原生桥返回的单个检测结果 DTO。
+        /// </summary>
         private sealed class DetectionDto
         {
             public bool ok;
@@ -173,3 +179,4 @@ namespace Project.MRWorld
         }
     }
 }
+

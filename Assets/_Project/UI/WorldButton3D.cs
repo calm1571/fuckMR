@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 
@@ -6,6 +6,9 @@ namespace Project.UI
 {
     [RequireComponent(typeof(Collider))]
     [RequireComponent(typeof(XRSimpleInteractable))]
+        /// <summary>
+    /// 运行时生成的世界空间 3D 按钮。
+    /// </summary>
     public sealed class WorldButton3D : MonoBehaviour
     {
         private Renderer _renderer;
@@ -122,3 +125,4 @@ namespace Project.UI
         }
     }
 }
+

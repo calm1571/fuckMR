@@ -1,9 +1,12 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.XR;
 
 namespace Project.MRWorld
 {
     // Manual fallback for marker alignment: move controller tip to printed tag center and press X to lock.
+        /// <summary>
+    /// 基于手动输入调整的 Marker 跟踪源。
+    /// </summary>
     public sealed class ManualMarkerTrackingSource : IMarkerTrackingSource
     {
         private readonly XRNode _poseNode;
@@ -141,3 +144,4 @@ namespace Project.MRWorld
         }
     }
 }
+

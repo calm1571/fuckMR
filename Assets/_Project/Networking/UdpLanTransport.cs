@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
@@ -7,8 +7,14 @@ using UnityEngine;
 
 namespace Project.Networking
 {
+        /// <summary>
+    /// 基于 UDP 的局域网传输层，负责握手、收包、发包和 Host 中继。
+    /// </summary>
     public sealed class UdpLanTransport
     {
+                /// <summary>
+        /// Host 端记录的已连接远端节点信息。
+        /// </summary>
         private sealed class HostPeerInfo
         {
             public IPEndPoint endpoint;
@@ -397,6 +403,7 @@ namespace Project.Networking
 
         private void HandleHandshake(LanMessage message, IPEndPoint remoteEndpoint)
         {
+            // 握手阶段只处理 HELLO / HELLO_ACK，并在 Host 端记录已连入的角色端点。
             if (_role == NetworkRole.Host && message.type == LanMessageTypes.Hello)
             {
                 var key = remoteEndpoint.ToString();
@@ -423,6 +430,7 @@ namespace Project.Networking
 
         private void RelayIfNeeded(LanMessage message, IPEndPoint sourceEndpoint)
         {
+            // Host 只中继需要跨端传播的消息，避免所有消息无差别广播。
             if (_role != NetworkRole.Host)
             {
                 return;
@@ -543,3 +551,4 @@ namespace Project.Networking
         }
     }
 }
+

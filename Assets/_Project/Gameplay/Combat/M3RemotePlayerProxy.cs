@@ -1,8 +1,11 @@
-using Project.Networking;
+﻿using Project.Networking;
 using UnityEngine;
 
 namespace Project.Gameplay.Combat
 {
+        /// <summary>
+    /// 远端玩家视觉代理，包含头、手、标识与血条。
+    /// </summary>
     public sealed class M3RemotePlayerProxy : MonoBehaviour
     {
         private Transform _alignmentRoot;
@@ -392,3 +395,4 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+

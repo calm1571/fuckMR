@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 
 namespace Project.MRWorld
@@ -35,6 +35,9 @@ namespace Project.MRWorld
         }
     }
 
+        /// <summary>
+    /// AprilTag 检测器抽象接口。
+    /// </summary>
     public interface IAprilTagDetector
     {
         bool IsAvailable { get; }
@@ -49,3 +52,4 @@ namespace Project.MRWorld
             out AprilTagDetectionResult result);
     }
 }
+

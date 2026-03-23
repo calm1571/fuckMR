@@ -1,8 +1,11 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Project.ScriptableObjects
 {
     [CreateAssetMenu(menuName = "Project/Combat Balance Config", fileName = "CombatBalanceConfig")]
+        /// <summary>
+    /// 战斗数值配置。
+    /// </summary>
     public sealed class CombatBalanceConfig : ScriptableObject
     {
         [Header("Core")]
@@ -19,3 +22,4 @@ namespace Project.ScriptableObjects
         [Min(0.1f)] public float shieldCooldown = 3f;
     }
 }
+

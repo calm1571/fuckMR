@@ -1,7 +1,10 @@
-using System;
+﻿using System;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// Host Lobby 状态。
+    /// </summary>
     public sealed class LobbyHostState : IAppState
     {
         private readonly LobbyView _view;
@@ -32,3 +35,4 @@ namespace Project.Core
         }
     }
 }
+

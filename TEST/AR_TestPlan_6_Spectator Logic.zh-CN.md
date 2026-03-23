@@ -1,15 +1,16 @@
-### 6. 观战逻辑
-验证观战客户端能否正确观察比赛，并且绝不干扰战斗。
+﻿### 6. 观战逻辑
+验证 Spectator 能否正确观察比赛、执行受控支持行为，并且不会直接破坏 Host / Client 的战斗权威逻辑。
 
 **包含内容**
-- 观战端只能观看，不能攻击
-- 观战端不能影响 HP / Shield / Result
-- 观战端能看到双方的施法与命中
-- 观战端的 HP 显示与玩家端一致
-- 观战端的结算结果与玩家端一致
+- 观战端不能直接攻击或成为受击目标
+- 观战端可通过 Host 权威支持机制影响战局
+- 观战端能看到双方的施法、命中、护盾与障碍墙
+- 观战端的状态显示与玩家端一致
+- 观战端的加血、放墙、本地弹幕、本地音频边界正确
 - 中途加入的观战端可以同步当前比赛状态
 - 观战端断线 / 恢复
 - 观战端 UI / 相机行为正确
+- 观战端本地双目标校准流程正确
 
 ---
 
@@ -17,30 +18,30 @@
 
 > 说明：  
 > - 本模块主要用于 **PlayMode / 三端集成测试**。  
-> - 重点验证 Spectator C 作为纯观察端，能否正确观战且不干扰 Player A / Player B 的战斗逻辑。  
-> - 建议记录日志：role、roomId、matchId、eventId、HP / Shield / Dead / Result、joinTime、reconnectTime。  
+> - 重点验证 Spectator 作为观战与支援角色，能否正确观战、执行受控支持行为，并保持 Host 权威模型不被破坏。  
+> - 建议记录日志：role、roomId、matchId、eventId、healVote、obstacleId、HP / Shield / Dead / Result、joinTime、reconnectTime。  
 > - 执行测试前请保持 `Actual Outcome` 和 `Status` 为空。  
 > - `Status` 建议使用：`Not Run`、`Pass`、`Fail`、`Blocked`、`N/A`。  
 > - 若某项依赖当前版本中尚未确认实现的功能，请先标记为 `Blocked`，并补充实现核查链接或说明。
 >
 > 量化通过标准：
-> - 观战权限隔离采用零容忍判定：被系统接受的 spectator 来源战斗事件数 = `0`，由 spectator 导致的 HP / Shield / Result 变更数 = `0`。
-> - 观战端 UI / 状态同步目标：相对于玩家端的 HP / Shield / Dead / Result 显示时间差 <= `300 ms`。
-> - 中途加入或重连通过标准：Spectator C 在 `2 s` 内进入当前比赛快照；赛后重连在 `3 s` 内进入正确结果界面。
-> - spectator 共享空间观察目标（可用后）：相对落位误差 <= `20 cm`，静止观察 `30 s` 内漂移 <= `10 cm`。
-> - 稳定性类用例仅在崩溃次数 = `0`、重复 spectator 实例数 = `0`、身份映射错误数 = `0` 时通过。
+> - 权限隔离采用零容忍判定：被系统接受的 Spectator 来源攻击 / 受击事件数 = `0`。
+> - 受控支持行为通过标准：所有由 Spectator 触发的 HP / 障碍墙变化，都必须能在 Host 权威日志中找到对应记录。
+> - 观战端 UI / 状态同步目标：相对于玩家端的 HP / Shield / Dead / Result / Wall HP 显示时间差 <= `300 ms`。
+> - 中途加入或重连通过标准：Spectator 在 `2 s` 内进入当前比赛快照；赛后重连在 `3 s` 内进入正确结果界面。
+> - 观战端本地校准通过标准：五步串行校准的第 3 / 4 步完成后，Spectator 观察到的 Host / Client 相对落位误差 <= `25 cm`，静止观察 `30 s` 内漂移 <= `15 cm`。
 
 ---
 
-#### 功能：观战端权限隔离（观战端只能观看，不能参与战斗）
+#### 功能：观战端权限边界（观战端不能直接参与玩家战斗）
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
-|SP-01 Trigger 输入对观战端无效|Spectator C 按下 Trigger|不会触发 Cast；不会生成 Projectile；不会发出战斗事件|||
-|SP-02 手势施法对观战端无效|Spectator C 做出施法手势|不会触发 Cast；不会生成 Projectile；日志中无施法记录|||
-|SP-03 观战端不能造成伤害|人为注入观战端发送 Damage 事件的异常尝试|系统拒绝该事件；A / B 的 HP 不会变化|||
-|SP-04 观战端不能成为有效战斗目标|Projectile 与观战端位置发生重叠 / 接触|不会对 Spectator 结算 Hit / Damage；观战端被排除在战斗结算外|||
-|SP-05 观战端不能影响比赛结果|比赛结束前，Spectator 执行任意输入|Winner / Loser / Draw 结果不受影响|||
+|SP-01 Trigger 输入对观战端无效|Spectator 按下 Trigger|不会触发 Cast；不会生成玩家 Projectile；不会发出攻击事件|||
+|SP-02 观战端不能直接造成伤害|人为注入 Spectator 发送 Damage / Hit 事件的异常尝试|系统拒绝该事件；Host / Client 的 HP 不会直接变化|||
+|SP-03 观战端不能成为有效战斗目标|Projectile 与 Spectator 表示发生重叠 / 接触|不会对 Spectator 结算 Hit / Damage；Spectator 被排除在战斗结算外|||
+|SP-04 观战端不能直接改写结果|比赛结束前，Spectator 执行任意非受控输入|Winner / Loser / Draw 结果不受直接影响|||
+|SP-05 权威裁决边界清晰|完成一局包含 Spectator 干预的比赛|所有真正影响战局的变化都可在 Host 权威日志中回溯|||
 
 ---
 
@@ -48,11 +49,11 @@
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
-|SV-01 观战端能看到 A 的施法|Player A 触发 1 次 Cast|Spectator C 能看到 A 的 Cast 与 Projectile 表现|||
-|SV-02 观战端能看到 B 的施法|Player B 触发 1 次 Cast|Spectator C 能看到 B 的 Cast 与 Projectile 表现|||
-|SV-03 观战端能看到命中反馈|A 命中 B|Spectator C 能看到对应命中特效 / 伤害反馈 / 状态变化|||
-|SV-04 观战端能看到双方移动|A / B 在场地中移动、转身、闪避|Spectator C 持续看到正确的相对移动与动作|||
-|SV-05 观战端能看到比赛结束|A 击杀 B，或时间结束结算|Spectator C 能看到正确的结算表现与结果界面|||
+|SV-01 观战端能看到 Host 的施法|Host 触发 1 次 Cast|Spectator 能看到 Host 的 Cast 与 Projectile 表现|||
+|SV-02 观战端能看到 Client 的施法|Client 触发 1 次 Cast|Spectator 能看到 Client 的 Cast 与 Projectile 表现|||
+|SV-03 观战端能看到命中反馈|Host 命中 Client|Spectator 能看到对应命中反馈、伤害表现与状态变化|||
+|SV-04 观战端能看到护盾|Host 或 Client 开启护盾|Spectator 能看到对应玩家护盾出现、持续与消失|||
+|SV-05 观战端能看到障碍墙|Spectator 放置 1 面墙，或场上已存在墙|Spectator 能看到真实运行时墙、血条、裂痕与销毁|||
 
 ---
 
@@ -60,11 +61,35 @@
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
-|SS-01 HP 显示一致性|B 当前 HP=100，被 A 命中造成 30 点伤害|Spectator C 显示 B HP=70，与 A / B 玩家端一致|||
-|SS-02 Shield 显示一致性|B Shield=20，HP=100；受到 30 点伤害|Spectator C 显示 Shield=0 且 HP=90，与玩家端一致|||
-|SS-03 Dead 状态一致性|B 受到致命伤害|Spectator C 显示 B 为 Dead，与玩家端一致|||
-|SS-04 Win / Lose / Draw 一致性|完成一场正常对局|Spectator C 显示与 A / B 玩家端相同的结果|||
-|SS-05 UI 刷新无明显延迟|连续发生多次命中与状态变化|Spectator C 的 UI 更新延迟在可接受同步误差内|||
+|SS-01 HP 显示一致性|Client 当前 HP=100，被 Host 命中造成 30 点伤害|Spectator 显示 Client HP=70，与玩家端一致|||
+|SS-02 Shield 显示一致性|Client 开盾并受到攻击|Spectator 显示 Shield 变化与玩家端一致|||
+|SS-03 Dead 状态一致性|Client 受到致命伤害|Spectator 显示 Client 为 Dead，与玩家端一致|||
+|SS-04 Win / Lose / Draw 一致性|完成一场正常对局|Spectator 显示与玩家端相同的胜负结果|||
+|SS-05 Wall HP UI 一致性|墙持续掉血并被子弹命中|Spectator 看到的墙血条与玩家端保持一致|||
+
+---
+
+#### 功能：观战端受控支持行为（观战端可影响战局，但必须受 Host 权威控制）
+
+|Test|Inputs|Expected Outcome|Actual Outcome|Status|
+|---|---|---|---|---|
+|SA-01 Heal Host 请求有效|Spectator 点击 `Heal Host`|Host 权威加血并广播；三端看到 Host HP 同步变化|||
+|SA-02 Heal Client 请求有效|Spectator 点击 `Heal Client`|Host 权威加血并广播；三端看到 Client HP 同步变化|||
+|SA-03 Heal 冷却正确|在冷却期间重复点击 Heal|Host 拒绝或忽略重复请求；HP 不会再次变化|||
+|SA-04 Place Wall 预览与确认分离|Spectator 进入放墙预览后取消 / 确认|取消时不会生成真实墙；确认后才会生成权威墙|||
+|SA-05 障碍墙通过 Host 权威生效|Spectator 放置墙后进行交火|墙会影响双方子弹，但生成、掉血、销毁都以 Host 为准|||
+
+---
+
+#### 功能：观战端本地独占行为（仅观战端自己可见 / 可听）
+
+|Test|Inputs|Expected Outcome|Actual Outcome|Status|
+|---|---|---|---|---|
+|SL-01 本地弹幕仅自己可见|Spectator 点击任意弹幕按钮|仅 Spectator 自己看到飘字；Host / Client 不受影响|||
+|SL-02 本地音频仅自己可听|Spectator 点击 `Cheer` / `Applause`|仅 Spectator 本地播放音频；Host / Client 无额外音效|||
+|SL-03 本地弹幕不写入战斗状态|比赛中多次触发本地弹幕|不会影响 HP、护盾、结果、墙状态或日志权威结算|||
+|SL-04 本地音频资源缺失处理|移除或不配置音频资源后点击按钮|界面给出正确 Ready / Missing 状态；系统不崩溃|||
+|SL-05 本地独占行为长时间运行稳定|连续多局反复触发弹幕和音频|不会造成内存泄漏、界面残留或战斗状态污染|||
 
 ---
 
@@ -72,11 +97,11 @@
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
-|SJ-01 中途加入后能看到当前状态|A / B 已在战斗且发生多次命中；C 加入|C 同步到当前 HP、Shield、Dead、剩余时间与玩家位置|||
-|SJ-02 中途加入后能看到当前有效投射物|A / B 战斗中，场上已有 Projectile|C 能看到当前仍有效的 Projectile，或看到正确的当前场景状态|||
-|SJ-03 中途加入后仍能看到正确结算|C 在比赛后半段加入，随后比赛结束|C 最终观察到的结果与玩家端一致|||
-|SJ-04 中途加入不会重置比赛|比赛进行中 C 加入|A / B 的战斗状态不会被重置；比赛不会跳回起点|||
-|SJ-05 中途加入失败处理|房间状态 / session 无效时 C 加入|系统给出清晰失败提示；A / B 的比赛不受影响|||
+|SJ-01 中途加入后能看到当前状态|Host / Client 已在战斗且发生多次命中；Spectator 加入|Spectator 同步到当前 HP、Shield、剩余时间、墙状态与玩家位置|||
+|SJ-02 中途加入后能看到当前有效投射物|战斗中场上已有 Projectile|Spectator 能看到当前仍有效的 Projectile，或看到正确的当前场景状态|||
+|SJ-03 中途加入后仍能看到正确结算|Spectator 在比赛后半段加入，随后比赛结束|Spectator 最终观察到的结果与玩家端一致|||
+|SJ-04 中途加入不会重置比赛|比赛进行中 Spectator 加入|Host / Client 的战斗状态不会被重置；比赛不会跳回起点|||
+|SJ-05 中途加入后本地校准流程正确|Spectator 中途加入并进入校准阶段|Spectator 能依次完成自己负责的第 3 / 4 步校准，不影响前两步权威关系|||
 
 ---
 
@@ -84,10 +109,10 @@
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
-|SR-01 观战端断线不影响玩家战斗|比赛中 Spectator C 断线|A / B 战斗正常继续；C 的断线不会暂停或错误终止比赛|||
-|SR-02 观战端重连恢复当前比赛|C 断线后短时间内重连|C 恢复到当前比赛状态，而不是从比赛开头重来|||
-|SR-03 长时间离线后重连|C 离线较久后重连|若比赛仍在进行，C 同步当前状态；若比赛已结束，C 进入正确结果界面|||
-|SR-04 比赛结束后再重连|比赛已结束后 C 才重连|C 直接看到最终结果，而不会回到错误的“进行中”状态|||
+|SR-01 观战端断线不影响玩家战斗|比赛中 Spectator 断线|Host / Client 战斗正常继续；Spectator 的断线不会暂停或错误终止比赛|||
+|SR-02 观战端重连恢复当前比赛|Spectator 断线后短时间内重连|Spectator 恢复到当前比赛状态，而不是从比赛开头重来|||
+|SR-03 长时间离线后重连|Spectator 离线较久后重连|若比赛仍在进行，Spectator 同步当前状态；若比赛已结束，进入正确结果界面|||
+|SR-04 比赛结束后再重连|比赛已结束后 Spectator 才重连|Spectator 直接看到最终结果，而不会回到错误的“进行中”状态|||
 |SR-05 多次断线 / 重连循环稳定性|同一局中多次断线 / 重连|系统保持稳定；不会出现身份混乱、重复 Spectator 实例或崩溃|||
 
 ---
@@ -96,23 +121,11 @@
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
-|SU-01 观战端不显示玩家专属施法控件|C 进入观战模式|C 不显示或无法操作玩家专属 Cast / Skill 控件与提示|||
-|SU-02 观战端能看到双方关键状态 UI|C 观看比赛|C 能清楚看到 A / B 的 HP、Shield、Result 等关键信息|||
-|SU-03 观战视图不会遮挡关键信息|C 从默认观察点观看|UI 与相机布局不会遮挡主要战斗区域|||
-|SU-04 观战模式提示正确|C 加入 / 断线 / 重连 / 看到比赛结束|UI 文案能清晰表明 Spectator 身份与当前状态|||
-|SU-05 相机切换行为正确（若支持）|C 在自由视角 / 固定视角 / 跟随视角间切换|相机行为符合设计，且不影响玩家状态与同步|||
-
----
-
-#### 功能：观战端与共享空间的关系（观战端在同一物理空间中的 AR 位置与显示正确）
-
-|Test|Inputs|Expected Outcome|Actual Outcome|Status|
-|---|---|---|---|---|
-|SA-01 观战端看到正确的玩家落位|A / B 分别站在场地左右侧，C 从后方观看|C 看到的 A / B 相对位置与真实物理环境一致|||
-|SA-02 观战端移动时仍保持正确视图|C 在现实空间中边走边看|C 的视图更新正确；A / B 虚拟位置无明显漂移|||
-|SA-03 观战端靠近玩家不会破坏表现|C 靠近 A 或 B 进行观察|C 仍能正确看到战斗；A / B 模型与 UI 保持稳定|||
-|SA-04 观战端遮挡不改变逻辑结果|C 站在 A 与 B 之间形成真实遮挡|只影响视觉可见性，不影响 Cast / Hit / Damage 逻辑|||
-|SA-05 长时间观战的空间稳定性|C 长时间持续观战|观战端 AR 对齐保持稳定，不会持续累积漂移|||
+|SU-01 观战端不显示玩家专属战斗控件|Spectator 进入 Playing|Spectator 不显示或无法操作玩家专属 Cast / Shield 战斗控件|||
+|SU-02 观战端能看到双方关键状态 UI|Spectator 观看比赛|Spectator 能清楚看到 Host / Client 的 HP、护盾、结果与墙血条|||
+|SU-03 观战视图不会遮挡关键信息|Spectator 从默认观察点观看|UI 与相机布局不会遮挡主要战斗区域|||
+|SU-04 观战模式提示正确|加入 / 断线 / 重连 / 比赛结束 / 放墙预览|UI 文案能清晰表明 Spectator 身份与当前状态|||
+|SU-05 观战控制面板行为正确|在 Playing 中反复打开和使用控制面板|Heal、Barrage、Audio、Place Wall 入口状态清晰，不与玩家 HUD 混淆|||
 
 ---
 
@@ -120,10 +133,10 @@
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
-|SC-01 观战日志与玩家日志可对齐|完成一场标准比赛并导出 A / B / C 日志|C 侧关键观察事件可以与 A / B 的事件对齐|||
-|SC-02 观战终态与玩家端一致|检查一局结束后的最终状态|C 的 HP、Dead、Winner / Loser / Draw 显示与玩家端一致|||
-|SC-03 连续多局观战一致性|C 连续观战 3-5 局比赛|每局结果都正确；旧局残留不会污染新局|||
-|SC-04 长时间运行后的观战一致性|系统长时间运行后再完成一局|C 依然能稳定观察到正确结果；无累计同步偏差|||
-|SC-05 异常条件下观战端不破坏系统|比赛中触发乱序、重复投递、断线恢复等异常|C 可能短暂延迟显示，但不得污染系统状态或导致崩溃|||
+|SC-01 观战日志与玩家日志可对齐|完成一场标准比赛并导出三端日志|Spectator 侧关键观察事件可以与 Host / Client 的事件对齐|||
+|SC-02 观战终态与玩家端一致|检查一局结束后的最终状态|Spectator 的 HP 显示、胜负结果、墙终态与玩家端一致|||
+|SC-03 连续多局观战一致性|Spectator 连续观战 3-5 局比赛|每局结果都正确；旧局残留不会污染新局|||
+|SC-04 长时间运行后的观战一致性|系统长时间运行后再完成一局|Spectator 依然能稳定观察到正确结果；无累计同步偏差|||
+|SC-05 异常条件下观战端不破坏系统|比赛中触发乱序、重复投递、断线恢复等异常|Spectator 可能短暂延迟显示，但不得污染系统状态或导致崩溃|||
 
 ---

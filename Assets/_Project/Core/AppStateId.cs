@@ -1,5 +1,8 @@
 ﻿namespace Project.Core
 {
+        /// <summary>
+    /// 应用主流程状态枚举。
+    /// </summary>
     public enum AppStateId
     {
         Boot = 0,
@@ -14,3 +17,4 @@
         BackToMenu = 9
     }
 }
+

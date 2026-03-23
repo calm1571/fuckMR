@@ -1,10 +1,13 @@
-using Project.Gameplay.Input;
+﻿using Project.Gameplay.Input;
 using UnityEngine;
 using UnityEngine.XR;
 using System;
 
 namespace Project.Gameplay.Combat
 {
+        /// <summary>
+    /// 子弹发射器，负责本地开火与远端子弹视觉生成。
+    /// </summary>
     public sealed class M1ProjectileShooter : MonoBehaviour
     {
         public struct ShotInfo
@@ -245,3 +248,4 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+

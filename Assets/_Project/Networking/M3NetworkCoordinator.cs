@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
@@ -6,6 +6,9 @@ using UnityEngine;
 
 namespace Project.Networking
 {
+        /// <summary>
+    /// 网络高层协调器，负责在运行时收发消息并向上层暴露事件。
+    /// </summary>
     public sealed class M3NetworkCoordinator
     {
         private readonly UdpLanTransport _transport = new UdpLanTransport();
@@ -409,6 +412,7 @@ namespace Project.Networking
 
         public void NotifyRemoteAlignment(Vector3 position, Quaternion rotation, bool confirmed, string stage)
         {
+            // 分步校准确认和偏移同步统一走这条消息，三种角色都允许发送。
             if (Role == NetworkRole.None || !_transport.IsConnected)
             {
                 return;
@@ -578,6 +582,7 @@ namespace Project.Networking
 
         private void OnMessageReceived(LanMessage message)
         {
+            // 所有网络消息都在这里做一次解析，再转成上层可消费的挂起事件。
             if (message == null || string.IsNullOrEmpty(message.type))
             {
                 return;
@@ -804,3 +809,4 @@ namespace Project.Networking
         }
     }
 }
+

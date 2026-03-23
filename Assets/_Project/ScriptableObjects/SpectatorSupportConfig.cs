@@ -1,8 +1,11 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Project.ScriptableObjects
 {
     [CreateAssetMenu(menuName = "Project/Spectator Support Config", fileName = "SpectatorSupportConfig")]
+        /// <summary>
+    /// Spectator 模式相关参数配置。
+    /// </summary>
     public sealed class SpectatorSupportConfig : ScriptableObject
     {
         [Header("Voting Heal")]
@@ -31,3 +34,4 @@ namespace Project.ScriptableObjects
         public Vector3 wallSize = new Vector3(1.6f, 1.35f, 0.12f);
     }
 }
+

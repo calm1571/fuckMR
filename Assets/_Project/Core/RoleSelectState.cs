@@ -1,5 +1,8 @@
-namespace Project.Core
+﻿namespace Project.Core
 {
+        /// <summary>
+    /// 角色选择状态。
+    /// </summary>
     public sealed class RoleSelectState : IAppState
     {
         private readonly RoleSelectView _view;
@@ -27,3 +30,4 @@ namespace Project.Core
         }
     }
 }
+

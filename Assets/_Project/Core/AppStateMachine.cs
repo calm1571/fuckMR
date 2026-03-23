@@ -3,6 +3,9 @@ using System.Collections.Generic;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 简单应用状态机，负责状态切换和 Tick 派发。
+    /// </summary>
     public sealed class AppStateMachine
     {
         private readonly Dictionary<AppStateId, IAppState> _states = new Dictionary<AppStateId, IAppState>();
@@ -38,3 +41,4 @@ namespace Project.Core
         }
     }
 }
+

@@ -2,6 +2,9 @@
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 应用启动状态。
+    /// </summary>
     public sealed class BootState : IAppState
     {
         private readonly System.Action _onBootDone;
@@ -23,3 +26,4 @@ namespace Project.Core
         public void Tick() { }
     }
 }
+

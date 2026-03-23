@@ -1,8 +1,11 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.XR;
 
 namespace Project.MRWorld
 {
+        /// <summary>
+    /// 远端视觉体本地微调控制器。
+    /// </summary>
     public sealed class RemoteAlignmentController
     {
         private readonly Transform _offsetRoot;
@@ -162,3 +165,4 @@ namespace Project.MRWorld
         }
     }
 }
+

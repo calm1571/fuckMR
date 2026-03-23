@@ -1,12 +1,18 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// Spectator 本地弹幕视图。
+    /// </summary>
     public sealed class SpectatorBarrageView
     {
+                /// <summary>
+        /// 单条弹幕实例记录。
+        /// </summary>
         private sealed class Entry
         {
             public RectTransform rect;
@@ -168,3 +174,4 @@ namespace Project.Core
         }
     }
 }
+

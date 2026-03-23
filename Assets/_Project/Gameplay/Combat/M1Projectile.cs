@@ -1,7 +1,10 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Project.Gameplay.Combat
 {
+        /// <summary>
+    /// 子弹移动体，负责生命周期与本地墙碰撞销毁。
+    /// </summary>
     public sealed class M1Projectile : MonoBehaviour
     {
         private Vector3 _startPosition;
@@ -53,6 +56,7 @@ namespace Project.Gameplay.Combat
 
         private void OnCollisionEnter(Collision collision)
         {
+            // 视觉子弹打到墙时立即在本地销毁，避免出现穿墙显示。
             if (collision == null)
             {
                 return;
@@ -98,3 +102,4 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR;
@@ -8,6 +8,9 @@ using UnityEngine.InputSystem;
 
 namespace Project.Gameplay.Input
 {
+        /// <summary>
+    /// 基于 PICO 控制器的输入实现。
+    /// </summary>
     public sealed class PicoControllerInputSource : IPlayerInputSource
     {
         private readonly InputDeviceCharacteristics _characteristics;
@@ -162,3 +165,4 @@ namespace Project.Gameplay.Input
 #endif
     }
 }
+

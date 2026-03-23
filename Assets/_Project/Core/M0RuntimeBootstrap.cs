@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -13,12 +13,18 @@ using Unity.XR.PXR;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 工程运行时总控，负责状态机、网络、MR 对齐、玩法与 Spectator 功能调度。
+    /// </summary>
     public sealed class M0RuntimeBootstrap : MonoBehaviour
     {
         private const string BuildStamp = "MR-SPECTATOR-WALL-V1";
         private const string ObstacleArenaAnchorType = "ArenaCenter";
         private const string HostIpPlayerPrefsKey = "Project.Network.HostIp";
 
+                /// <summary>
+        /// 多角色串行校准阶段。
+        /// </summary>
         private enum LiveCalibrationPhase
         {
             ClientAdjustHost = 0,
@@ -709,6 +715,7 @@ namespace Project.Core
 
         private void HandleCalibrationConfirmClicked()
         {
+            // 串行校准的确认入口：根据当前角色和阶段，只允许当前执行者推进到下一步。
             if (_selectedRole == NetworkRole.Client && !_clientWorldRootLocked)
             {
                 if (!IsAprilTagCalibrationActive)
@@ -918,6 +925,7 @@ namespace Project.Core
 
         private void OnEnterCalibration()
         {
+            // 每次进入校准都重置局部对齐状态、确认标记和可视化节点，避免上一局残留。
             _clientWorldRootLocked = false;
             _nextCalibrationSyncTime = 0f;
             _nextRemoteAlignmentSyncTime = 0f;
@@ -1389,6 +1397,7 @@ namespace Project.Core
 
         private void OnRemoteAlignmentReceived(RemoteAlignmentPayload payload)
         {
+            // 这里负责把远端设备发来的“该步骤已确认”消息转换成当前设备的阶段推进。
             if (payload == null || IsAprilTagCalibrationActive)
             {
                 return;
@@ -3448,3 +3457,4 @@ namespace Project.Core
         }
     }
 }
+

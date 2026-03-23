@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using OpenCVForUnity.Calib3dModule;
 using OpenCVForUnity.CoreModule;
@@ -13,6 +13,9 @@ using Point3 = OpenCVForUnity.CoreModule.Point3;
 namespace Project.MRWorld
 {
     // AprilTag detector based on OpenCVForUnity (Objdetect+Aruco APIs).
+        /// <summary>
+    /// 基于 OpenCVForUnity 的 AprilTag 检测实现。
+    /// </summary>
     public sealed class OpenCVForUnityAprilTagDetector : IAprilTagDetector
     {
         private readonly Dictionary<int, CvDictionary> _dictionaryCache = new Dictionary<int, CvDictionary>();
@@ -387,3 +390,4 @@ namespace Project.MRWorld
         }
     }
 }
+
