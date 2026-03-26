@@ -1,5 +1,8 @@
 ﻿namespace Project.Core
 {
+        /// <summary>
+    /// 应用主流程状态枚举。
+    /// </summary>
     public enum AppStateId
     {
         Boot = 0,
@@ -7,9 +10,11 @@
         RoleSelect = 2,
         LobbyHost = 3,
         LobbyClient = 4,
-        Calibration = 5,
-        Playing = 6,
-        Result = 7,
-        BackToMenu = 8
+        LobbySpectator = 5,
+        Calibration = 6,
+        Playing = 7,
+        Result = 8,
+        BackToMenu = 9
     }
 }
+

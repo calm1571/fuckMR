@@ -1,7 +1,10 @@
-using System;
+﻿using System;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 游戏进行状态。
+    /// </summary>
     public sealed class PlayingState : IAppState
     {
         private readonly Action _onEnter;
@@ -30,3 +33,4 @@ namespace Project.Core
         }
     }
 }
+

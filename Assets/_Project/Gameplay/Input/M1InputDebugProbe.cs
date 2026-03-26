@@ -1,7 +1,10 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Project.Gameplay.Input
 {
+        /// <summary>
+    /// 输入调试探针，用于快速检查控制器输入状态。
+    /// </summary>
     public sealed class M1InputDebugProbe
     {
         private readonly IPlayerInputSource _inputSource;
@@ -41,3 +44,4 @@ namespace Project.Gameplay.Input
         }
     }
 }
+

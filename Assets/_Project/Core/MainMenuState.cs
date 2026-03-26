@@ -1,5 +1,8 @@
 ﻿namespace Project.Core
 {
+        /// <summary>
+    /// 主菜单状态。
+    /// </summary>
     public sealed class MainMenuState : IAppState
     {
         private readonly MainMenuView _view;
@@ -27,3 +30,4 @@
         }
     }
 }
+

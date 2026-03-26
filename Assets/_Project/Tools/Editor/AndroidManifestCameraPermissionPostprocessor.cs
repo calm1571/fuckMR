@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Xml;
 using UnityEditor;
 using UnityEditor.Android;
@@ -6,6 +6,9 @@ using UnityEngine;
 
 namespace Project.Tools.Editor
 {
+        /// <summary>
+    /// Android 构建后处理：补充相机权限相关配置。
+    /// </summary>
     public sealed class AndroidManifestCameraPermissionPostprocessor : IPostGenerateGradleAndroidProject
     {
         public int callbackOrder => 9999;
@@ -63,3 +66,4 @@ namespace Project.Tools.Editor
         }
     }
 }
+

@@ -1,7 +1,10 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Project.MRWorld
 {
+        /// <summary>
+    /// Marker 跟踪源模式枚举。
+    /// </summary>
     public enum MarkerTrackingSourceMode
     {
         Unknown = 0,
@@ -18,6 +21,9 @@ namespace Project.MRWorld
         public MarkerTrackingSourceMode sourceMode;
     }
 
+        /// <summary>
+    /// Marker 跟踪源抽象接口。
+    /// </summary>
     public interface IMarkerTrackingSource
     {
         void Begin();
@@ -27,3 +33,4 @@ namespace Project.MRWorld
         string BuildDebugText();
     }
 }
+

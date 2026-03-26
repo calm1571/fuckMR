@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Project.Gameplay.Combat;
 using Project.Gameplay.Input;
@@ -12,15 +13,25 @@ using Unity.XR.PXR;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 工程运行时总控，负责状态机、网络、MR 对齐、玩法与 Spectator 功能调度。
+    /// </summary>
     public sealed class M0RuntimeBootstrap : MonoBehaviour
     {
-        private const string BuildStamp = "MR-RESULT-RETRY-V5";
+        private const string BuildStamp = "MR-SPECTATOR-WALL-V1";
+        private const string ObstacleArenaAnchorType = "ArenaCenter";
+        private const string HostIpPlayerPrefsKey = "Project.Network.HostIp";
 
+                /// <summary>
+        /// 多角色串行校准阶段。
+        /// </summary>
         private enum LiveCalibrationPhase
         {
             ClientAdjustHost = 0,
             HostAdjustClient = 1,
-            ReadyToPlay = 2
+            SpectatorAdjustClient = 2,
+            SpectatorAdjustHost = 3,
+            HostFinalConfirm = 4
         }
 
         [SerializeField] private float menuDistance = 2.2f;
@@ -35,6 +46,7 @@ namespace Project.Core
         [SerializeField] private float worldRootSyncBurstInterval = 0.12f;
         [SerializeField] private float calibrationSyncInterval = 0.08f;
         [SerializeField] private CombatBalanceConfig combatBalanceConfig;
+        [SerializeField] private SpectatorSupportConfig spectatorSupportConfig;
         [SerializeField] private float hitCheckRadius = 0.25f;
         [SerializeField] private bool enableSharedSpatialAnchor = true;
         [SerializeField] private bool enableAutoAprilTagTracking = true;
@@ -53,6 +65,10 @@ namespace Project.Core
         [SerializeField] private float calibrationReadySendInterval = 0.25f;
         [SerializeField] private float hudDistance = 1.15f;
         [SerializeField] private Vector3 hudLocalOffset = new Vector3(0f, 0.28f, 0f);
+        [SerializeField] private float spectatorPanelDistance = 1.1f;
+        [SerializeField] private Vector3 spectatorPanelLocalOffset = new Vector3(0f, -0.16f, 0f);
+        [SerializeField] private float spectatorBarrageDistance = 1.2f;
+        [SerializeField] private Vector3 spectatorBarrageLocalOffset = new Vector3(0f, 0f, 0f);
 
         private static M0RuntimeBootstrap _instance;
 
@@ -64,17 +80,28 @@ namespace Project.Core
         private CalibrationView _calibrationView;
         private WorldRootController _worldRootController;
         private RemoteAlignmentController _remoteAlignmentController;
+        private RemoteAlignmentController _spectatorHostAlignmentController;
+        private RemoteAlignmentController _spectatorClientAlignmentController;
         private GameObject _worldRootMarker;
         private Transform _remoteAlignmentRoot;
         private RoleSelectView _roleSelectView;
         private LobbyView _lobbyHostView;
         private LobbyView _lobbyClientView;
+        private LobbyView _lobbySpectatorView;
         private LobbyView _resultView;
         private M5PlayerHudView _playerHudView;
+        private SpectatorControlView _spectatorControlView;
+        private SpectatorBarrageView _spectatorBarrageView;
+        private SpectatorAudioPlayer _spectatorAudioPlayer;
+        private RemoteAlignmentController _spectatorWallPlacementController;
         private M3NetworkCoordinator _networkCoordinator;
         private M3RemotePlayerProxy _remoteProxy;
+        private M3RemotePlayerProxy _spectatorHostProxy;
+        private M3RemotePlayerProxy _spectatorClientProxy;
         private NetworkRole _selectedRole = NetworkRole.None;
         private Transform _worldRootTransform;
+        private Transform _spectatorHostAlignmentRoot;
+        private Transform _spectatorClientAlignmentRoot;
         private bool _clientWorldRootLocked;
         private Coroutine _worldRootSyncRoutine;
         private Coroutine _sharedAnchorPublishRoutine;
@@ -85,6 +112,8 @@ namespace Project.Core
         private ActionBasedController _rightActionController;
         private M5ShieldVisual _localShieldVisual;
         private M5ShieldVisual _remoteShieldVisual;
+        private M5ShieldVisual _spectatorHostShieldVisual;
+        private M5ShieldVisual _spectatorClientShieldVisual;
 
         private int _hostHp;
         private int _clientHp;
@@ -109,8 +138,24 @@ namespace Project.Core
         private LiveCalibrationPhase _liveCalibrationPhase;
         private bool _clientAlignmentConfirmed;
         private bool _hostAlignmentConfirmed;
+        private bool _spectatorClientAlignmentConfirmed;
+        private bool _spectatorHostAlignmentConfirmed;
         private bool _localRematchReady;
         private bool _remoteRematchReady;
+        private float _localSpectatorVoteCooldownUntil;
+        private float _hostSpectatorVoteCooldownUntil;
+        private readonly Dictionary<int, ObstacleStatePayload> _obstacleStates = new Dictionary<int, ObstacleStatePayload>();
+        private readonly Dictionary<int, WallObstacleRuntime> _obstacleVisuals = new Dictionary<int, WallObstacleRuntime>();
+        private Transform _obstacleVisualRoot;
+        private WallObstacleRuntime _spectatorWallPreview;
+        private bool _spectatorWallPlacementActive;
+        private float _hostWallSpawnCooldownUntil;
+        private float _hostObstacleStateBroadcastCooldownUntil;
+        private int _nextObstacleId = 1;
+        private UnityEngine.XR.InputDevice _wallPlacementLeftController;
+        private UnityEngine.XR.InputDevice _wallPlacementRightController;
+        private bool _wallPlacementLeftTriggerHeld;
+        private bool _wallPlacementRightTriggerHeld;
 
         private bool IsAprilTagCalibrationActive => enableAutoAprilTagTracking && !disableAprilTagCalibrationTemporarily;
 
@@ -122,7 +167,9 @@ namespace Project.Core
             }
 
             return (_selectedRole == NetworkRole.Client && _liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost) ||
-                   (_selectedRole == NetworkRole.Host && _liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient);
+                   (_selectedRole == NetworkRole.Host && _liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient) ||
+                   (_selectedRole == NetworkRole.Spectator && _liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustClient) ||
+                   (_selectedRole == NetworkRole.Spectator && _liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustHost);
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -175,12 +222,28 @@ namespace Project.Core
             StartCoroutine(EnableOfficialPassthroughWithRetry());
 
             var menuView = new MainMenuView(camera.transform, HandleStartClicked, OnExitClicked, menuDistance, menuVerticalOffset);
-            _roleSelectView = new RoleSelectView(camera.transform, OnHostSelected, OnClientSelected, HandleRoleSelectBackClicked, menuDistance, menuVerticalOffset);
+            _roleSelectView = new RoleSelectView(camera.transform, OnHostSelected, OnClientSelected, OnSpectatorSelected, HandleRoleSelectBackClicked, menuDistance, menuVerticalOffset);
+            hostIpForClient = LoadHostIpPreference(hostIpForClient);
             _lobbyHostView = new LobbyView(camera.transform, "Lobby Host", "Start Match", HandleHostStartMatchClicked, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
-            _lobbyClientView = new LobbyView(camera.transform, "Lobby Client", "Waiting Host", null, HandleLobbyBackClicked, menuDistance, menuVerticalOffset);
+            _lobbyClientView = new LobbyView(camera.transform, "Lobby Client", "Connect", HandleClientConnectClicked, HandleLobbyBackClicked, menuDistance, menuVerticalOffset, OnHostIpEdited, "Host IP");
+            _lobbySpectatorView = new LobbyView(camera.transform, "Lobby Spectator", "Connect", HandleSpectatorConnectClicked, HandleLobbyBackClicked, menuDistance, menuVerticalOffset, OnHostIpEdited, "Host IP");
             _calibrationView = new CalibrationView(camera.transform, HandleCalibrationConfirmClicked, HandleCalibrationBackClicked, menuDistance, menuVerticalOffset);
             _resultView = new LobbyView(camera.transform, "Result", "Retry", HandleResultRetryClicked, HandleResultBackToMenuClicked, menuDistance, menuVerticalOffset);
             _playerHudView = new M5PlayerHudView(camera.transform, hudDistance, hudLocalOffset);
+            _spectatorControlView = new SpectatorControlView(
+                camera.transform,
+                spectatorPanelDistance,
+                spectatorPanelLocalOffset,
+                HandleSpectatorHealHostClicked,
+                HandleSpectatorHealClientClicked,
+                HandleSpectatorBarrageAClicked,
+                HandleSpectatorBarrageBClicked,
+                HandleSpectatorBarrageCClicked,
+                HandleSpectatorCheerClicked,
+                HandleSpectatorApplauseClicked,
+                HandleSpectatorPlaceWallClicked);
+            _spectatorBarrageView = new SpectatorBarrageView(camera.transform, spectatorBarrageDistance, spectatorBarrageLocalOffset);
+            _spectatorAudioPlayer = new SpectatorAudioPlayer(transform);
 
             _worldRootTransform = EnsureWorldRootExists();
             _worldRootController = new WorldRootController(
@@ -190,11 +253,24 @@ namespace Project.Core
                 calibrationRotateSpeed,
                 calibrationHeightSpeed);
             _remoteAlignmentRoot = EnsureRemoteAlignmentRootExists();
+            _spectatorHostAlignmentRoot = EnsureNamedRootExists("SpectatorHostAlignmentRoot");
+            _spectatorClientAlignmentRoot = EnsureNamedRootExists("SpectatorClientAlignmentRoot");
             _remoteAlignmentController = new RemoteAlignmentController(
                 _remoteAlignmentRoot,
                 calibrationMoveSpeed,
                 calibrationRotateSpeed,
                 calibrationHeightSpeed);
+            _spectatorHostAlignmentController = new RemoteAlignmentController(
+                _spectatorHostAlignmentRoot,
+                calibrationMoveSpeed,
+                calibrationRotateSpeed,
+                calibrationHeightSpeed);
+            _spectatorClientAlignmentController = new RemoteAlignmentController(
+                _spectatorClientAlignmentRoot,
+                calibrationMoveSpeed,
+                calibrationRotateSpeed,
+                calibrationHeightSpeed);
+            _obstacleVisualRoot = EnsureNamedRootExists("ObstacleVisualRoot");
             _worldRootMarker = EnsureWorldRootMarker(_worldRootTransform);
             if (_worldRootMarker != null)
             {
@@ -213,6 +289,7 @@ namespace Project.Core
             _stateMachine.Register(new RoleSelectState(_roleSelectView));
             _stateMachine.Register(new LobbyHostState(_lobbyHostView, OnTickLobbyHost));
             _stateMachine.Register(new LobbyClientState(_lobbyClientView, OnTickLobbyClient));
+            _stateMachine.Register(new LobbySpectatorState(_lobbySpectatorView, OnTickLobbySpectator));
             _stateMachine.Register(new CalibrationState(OnEnterCalibration, OnExitCalibration, OnTickCalibration));
             _stateMachine.Register(new PlayingState(OnEnterPlaying, OnExitPlaying));
             _stateMachine.Register(new ResultState(OnEnterResult, OnExitResult, OnTickResult));
@@ -258,8 +335,8 @@ namespace Project.Core
                 _rightActionController != null ? _rightActionController.transform : null);
             _networkCoordinator.RemoteCalibrationRequested += OnRemoteCalibrationRequested;
             _networkCoordinator.WorldRootSyncReceived += OnRemoteWorldRootSyncReceived;
-            _networkCoordinator.RemoteShootReceived += OnRemoteShootReceived;
-            _networkCoordinator.RemoteShieldReceived += OnRemoteShieldReceived;
+            _networkCoordinator.RoleShootReceived += OnRoleShootReceived;
+            _networkCoordinator.RoleShieldReceived += OnRoleShieldReceived;
             _networkCoordinator.HpUpdateReceived += OnHpUpdateReceived;
             _networkCoordinator.MatchResultReceived += OnMatchResultReceived;
             _networkCoordinator.SharedAnchorReceived += OnSharedAnchorReceived;
@@ -267,6 +344,9 @@ namespace Project.Core
             _networkCoordinator.RemoteCalibrationReadyReceived += OnRemoteCalibrationReadyReceived;
             _networkCoordinator.RemoteAlignmentReceived += OnRemoteAlignmentReceived;
             _networkCoordinator.RemoteRematchReadyReceived += OnRemoteRematchReadyReceived;
+            _networkCoordinator.SpectatorVoteReceived += OnSpectatorVoteReceived;
+            _networkCoordinator.ObstacleSpawnRequestReceived += OnObstacleSpawnRequestReceived;
+            _networkCoordinator.ObstacleStateReceived += OnObstacleStateReceived;
 
             _remoteProxy = gameObject.GetComponent<M3RemotePlayerProxy>();
             if (_remoteProxy == null)
@@ -275,6 +355,10 @@ namespace Project.Core
             }
             _remoteProxy.BindAlignmentRoot(_remoteAlignmentRoot);
             _remoteAlignmentController?.SetPivotTransform(_remoteProxy.HeadTransform);
+            _spectatorHostProxy = CreateSpectatorProxy("SpectatorHostProxy", _spectatorHostAlignmentRoot);
+            _spectatorClientProxy = CreateSpectatorProxy("SpectatorClientProxy", _spectatorClientAlignmentRoot);
+            _spectatorHostProxy?.Hide();
+            _spectatorClientProxy?.Hide();
 
             _spatialAnchorService = new SpatialAnchorSyncService();
             var manualMarkerSource = new ManualMarkerTrackingSource();
@@ -303,14 +387,23 @@ namespace Project.Core
             _inputSource?.Tick();
             _inputDebugProbe?.Tick();
             _networkCoordinator?.Tick(Time.unscaledTime);
-            if (_networkCoordinator != null && _networkCoordinator.HasRemotePose && _remoteProxy != null)
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                UpdateSpectatorVisuals();
+            }
+            else if (_networkCoordinator != null && _networkCoordinator.HasRemotePose && _remoteProxy != null)
             {
                 _remoteProxy.ApplyPose(_networkCoordinator.LatestRemotePose);
             }
 
             _stateMachine?.Tick();
             TickCombat();
+            RefreshObstacleVisuals();
             _playerHudView?.Tick();
+            _spectatorControlView?.Tick();
+            _spectatorBarrageView?.Tick(Time.deltaTime);
+            UpdateSpectatorVoteUi();
+            TickSpectatorWallPlacement();
         }
 
         private void OnDestroy()
@@ -341,8 +434,8 @@ namespace Project.Core
             {
                 _networkCoordinator.RemoteCalibrationRequested -= OnRemoteCalibrationRequested;
                 _networkCoordinator.WorldRootSyncReceived -= OnRemoteWorldRootSyncReceived;
-                _networkCoordinator.RemoteShootReceived -= OnRemoteShootReceived;
-                _networkCoordinator.RemoteShieldReceived -= OnRemoteShieldReceived;
+                _networkCoordinator.RoleShootReceived -= OnRoleShootReceived;
+                _networkCoordinator.RoleShieldReceived -= OnRoleShieldReceived;
                 _networkCoordinator.HpUpdateReceived -= OnHpUpdateReceived;
                 _networkCoordinator.MatchResultReceived -= OnMatchResultReceived;
                 _networkCoordinator.SharedAnchorReceived -= OnSharedAnchorReceived;
@@ -350,8 +443,13 @@ namespace Project.Core
                 _networkCoordinator.RemoteCalibrationReadyReceived -= OnRemoteCalibrationReadyReceived;
                 _networkCoordinator.RemoteAlignmentReceived -= OnRemoteAlignmentReceived;
                 _networkCoordinator.RemoteRematchReadyReceived -= OnRemoteRematchReadyReceived;
+                _networkCoordinator.SpectatorVoteReceived -= OnSpectatorVoteReceived;
+                _networkCoordinator.ObstacleSpawnRequestReceived -= OnObstacleSpawnRequestReceived;
+                _networkCoordinator.ObstacleStateReceived -= OnObstacleStateReceived;
                 _networkCoordinator.Stop();
             }
+
+            ClearObstacleVisuals();
         }
 
         private static IEnumerator RequestMrPermissionWithSdk()
@@ -475,17 +573,53 @@ namespace Project.Core
         private void OnClientSelected()
         {
             _selectedRole = NetworkRole.Client;
-            _networkCoordinator?.StartClient(hostIpForClient);
+            _stateMachine?.ChangeState(AppStateId.LobbyClient);
+        }
+
+        private void OnSpectatorSelected()
+        {
+            _selectedRole = NetworkRole.Spectator;
+            _stateMachine?.ChangeState(AppStateId.LobbySpectator);
+        }
+
+        private void HandleClientConnectClicked()
+        {
+            if (_selectedRole != NetworkRole.Client || _networkCoordinator == null)
+            {
+                return;
+            }
+
+            hostIpForClient = SanitizeHostIp(_lobbyClientView != null ? _lobbyClientView.GetInputValue() : hostIpForClient);
+            SaveHostIpPreference();
+            _networkCoordinator.StartClient(hostIpForClient);
             if (enableSharedSpatialAnchor)
             {
                 StartCoroutine(WarmupSpatialAnchorProviderRoutine());
             }
-            _stateMachine?.ChangeState(AppStateId.LobbyClient);
+        }
+
+        private void HandleSpectatorConnectClicked()
+        {
+            if (_selectedRole != NetworkRole.Spectator || _networkCoordinator == null)
+            {
+                return;
+            }
+
+            hostIpForClient = SanitizeHostIp(_lobbySpectatorView != null ? _lobbySpectatorView.GetInputValue() : hostIpForClient);
+            SaveHostIpPreference();
+            _networkCoordinator.StartSpectator(hostIpForClient);
+        }
+
+        private void OnHostIpEdited(string value)
+        {
+            hostIpForClient = SanitizeHostIp(value);
         }
 
         private void HandleLobbyBackClicked()
         {
             _networkCoordinator?.Stop();
+            ClearObstacleVisuals();
+            _obstacleStates.Clear();
             _selectedRole = NetworkRole.None;
             _clientWorldRootLocked = false;
             if (_sharedAnchorPublishRoutine != null)
@@ -499,6 +633,9 @@ namespace Project.Core
                 StopCoroutine(_sharedAnchorResolveRoutine);
                 _sharedAnchorResolveRoutine = null;
             }
+            _remoteProxy?.Hide();
+            _spectatorHostProxy?.Hide();
+            _spectatorClientProxy?.Hide();
             _stateMachine?.ChangeState(AppStateId.RoleSelect);
         }
 
@@ -510,7 +647,8 @@ namespace Project.Core
             }
 
             _lobbyHostView.SetStatus(_networkCoordinator.BuildLobbyStatus());
-            _lobbyHostView.SetPrimaryButton(_networkCoordinator.IsConnected ? "Start Match" : "Waiting Client...", _networkCoordinator.IsConnected);
+            var ready = _networkCoordinator.HasClientPeer && _networkCoordinator.HasSpectatorPeer;
+            _lobbyHostView.SetPrimaryButton(ready ? "Start Match" : "Waiting All Roles...", ready);
         }
 
         private void OnTickLobbyClient()
@@ -520,13 +658,44 @@ namespace Project.Core
                 return;
             }
 
+            _lobbyClientView.SetInputVisible(true);
+            if (string.IsNullOrWhiteSpace(_lobbyClientView.GetInputValue()))
+            {
+                _lobbyClientView.SetInputValue(hostIpForClient);
+            }
             _lobbyClientView.SetStatus(_networkCoordinator.BuildLobbyStatus());
-            _lobbyClientView.SetPrimaryButton("Waiting Host", false);
+            _lobbyClientView.SetPrimaryButton(_networkCoordinator.IsConnected ? "Reconnect" : "Connect", true);
+        }
+
+        private void OnTickLobbySpectator()
+        {
+            if (_networkCoordinator == null)
+            {
+                return;
+            }
+
+            _lobbySpectatorView.SetInputVisible(true);
+            if (string.IsNullOrWhiteSpace(_lobbySpectatorView.GetInputValue()))
+            {
+                _lobbySpectatorView.SetInputValue(hostIpForClient);
+            }
+            _lobbySpectatorView.SetStatus(_networkCoordinator.BuildLobbyStatus());
+            _lobbySpectatorView.SetPrimaryButton(_networkCoordinator.IsConnected ? "Reconnect" : "Connect", true);
+
+            if (_networkCoordinator.IsConnected &&
+                _networkCoordinator.HasRemotePoseForRole(NetworkRole.Host) &&
+                _networkCoordinator.HasRemotePoseForRole(NetworkRole.Client))
+            {
+                _stateMachine?.ChangeState(AppStateId.Calibration);
+            }
         }
 
         private void HandleHostStartMatchClicked()
         {
-            if (_selectedRole != NetworkRole.Host || _networkCoordinator == null || !_networkCoordinator.IsConnected)
+            if (_selectedRole != NetworkRole.Host ||
+                _networkCoordinator == null ||
+                !_networkCoordinator.HasClientPeer ||
+                !_networkCoordinator.HasSpectatorPeer)
             {
                 return;
             }
@@ -538,7 +707,7 @@ namespace Project.Core
 
         private void OnRemoteCalibrationRequested()
         {
-            if (_selectedRole == NetworkRole.Client)
+            if (_selectedRole == NetworkRole.Client || _selectedRole == NetworkRole.Spectator)
             {
                 _stateMachine?.ChangeState(AppStateId.Calibration);
             }
@@ -546,6 +715,7 @@ namespace Project.Core
 
         private void HandleCalibrationConfirmClicked()
         {
+            // 串行校准的确认入口：根据当前角色和阶段，只允许当前执行者推进到下一步。
             if (_selectedRole == NetworkRole.Client && !_clientWorldRootLocked)
             {
                 if (!IsAprilTagCalibrationActive)
@@ -565,13 +735,11 @@ namespace Project.Core
                             _remoteAlignmentRoot != null ? _remoteAlignmentRoot.rotation : Quaternion.identity,
                             true,
                             LiveCalibrationPhase.ClientAdjustHost.ToString());
-                        _calibrationView?.SetStatus("Client step confirmed.\nWaiting for host to adjust your avatar.");
+                        _calibrationView?.SetStatus("Client step confirmed.\nWaiting for host to adjust Client avatar.");
                         return;
                     }
 
-                    _calibrationView?.SetStatus(_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient
-                        ? "Waiting for host to finish adjustment."
-                        : "Waiting for host final Confirm to start match.");
+                    _calibrationView?.SetStatus(BuildLiveCalibrationWaitingStatus());
                     return;
                 }
 
@@ -602,19 +770,25 @@ namespace Project.Core
                         }
 
                         _hostAlignmentConfirmed = true;
-                        _liveCalibrationPhase = LiveCalibrationPhase.ReadyToPlay;
+                        _liveCalibrationPhase = LiveCalibrationPhase.SpectatorAdjustClient;
                         _networkCoordinator?.NotifyRemoteAlignment(
                             _remoteAlignmentRoot != null ? _remoteAlignmentRoot.position : Vector3.zero,
                             _remoteAlignmentRoot != null ? _remoteAlignmentRoot.rotation : Quaternion.identity,
                             true,
                             LiveCalibrationPhase.HostAdjustClient.ToString());
-                        _calibrationView?.SetStatus("Host step confirmed.\nPress Confirm again to start match.");
+                        _calibrationView?.SetStatus("Host step confirmed.\nWaiting for spectator to adjust Client avatar.");
                         return;
                     }
 
-                    if (!_clientAlignmentConfirmed || !_hostAlignmentConfirmed)
+                    if (_liveCalibrationPhase == LiveCalibrationPhase.HostFinalConfirm &&
+                        (!_clientAlignmentConfirmed || !_hostAlignmentConfirmed || !_spectatorClientAlignmentConfirmed || !_spectatorHostAlignmentConfirmed))
                     {
-                        _calibrationView?.SetStatus("Calibration steps incomplete.\nClient and Host must both confirm their own view.");
+                        _calibrationView?.SetStatus("Calibration steps incomplete.\nAll four adjustment steps must be confirmed.");
+                        return;
+                    }
+                    else if (_liveCalibrationPhase != LiveCalibrationPhase.HostFinalConfirm)
+                    {
+                        _calibrationView?.SetStatus(BuildLiveCalibrationWaitingStatus());
                         return;
                     }
                 }
@@ -674,6 +848,50 @@ namespace Project.Core
                 }
             }
 
+            if (_selectedRole == NetworkRole.Spectator && !IsAprilTagCalibrationActive)
+            {
+                if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustClient)
+                {
+                    if (_networkCoordinator == null || !_networkCoordinator.HasRemotePoseForRole(NetworkRole.Client))
+                    {
+                        _calibrationView?.SetStatus("Waiting Client avatar stream before spectator client adjustment.");
+                        return;
+                    }
+
+                    _spectatorClientAlignmentConfirmed = true;
+                    _liveCalibrationPhase = LiveCalibrationPhase.SpectatorAdjustHost;
+                    _networkCoordinator?.NotifyRemoteAlignment(
+                        _spectatorClientAlignmentRoot != null ? _spectatorClientAlignmentRoot.position : Vector3.zero,
+                        _spectatorClientAlignmentRoot != null ? _spectatorClientAlignmentRoot.rotation : Quaternion.identity,
+                        true,
+                        LiveCalibrationPhase.SpectatorAdjustClient.ToString());
+                    _calibrationView?.SetStatus("Spectator client step confirmed.\nNow adjust Host avatar.");
+                    return;
+                }
+
+                if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustHost)
+                {
+                    if (_networkCoordinator == null || !_networkCoordinator.HasRemotePoseForRole(NetworkRole.Host))
+                    {
+                        _calibrationView?.SetStatus("Waiting Host avatar stream before spectator host adjustment.");
+                        return;
+                    }
+
+                    _spectatorHostAlignmentConfirmed = true;
+                    _liveCalibrationPhase = LiveCalibrationPhase.HostFinalConfirm;
+                    _networkCoordinator?.NotifyRemoteAlignment(
+                        _spectatorHostAlignmentRoot != null ? _spectatorHostAlignmentRoot.position : Vector3.zero,
+                        _spectatorHostAlignmentRoot != null ? _spectatorHostAlignmentRoot.rotation : Quaternion.identity,
+                        true,
+                        LiveCalibrationPhase.SpectatorAdjustHost.ToString());
+                    _calibrationView?.SetStatus("Spectator host step confirmed.\nWaiting for host final Confirm.");
+                    return;
+                }
+
+                _calibrationView?.SetStatus(BuildLiveCalibrationWaitingStatus());
+                return;
+            }
+
             if (_selectedRole == NetworkRole.Host)
             {
                 _networkCoordinator?.NotifyHostStartPlaying();
@@ -696,20 +914,29 @@ namespace Project.Core
                 return;
             }
 
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                _stateMachine?.ChangeState(AppStateId.LobbySpectator);
+                return;
+            }
+
             _stateMachine?.ChangeState(AppStateId.MainMenu);
         }
 
         private void OnEnterCalibration()
         {
+            // 每次进入校准都重置局部对齐状态、确认标记和可视化节点，避免上一局残留。
             _clientWorldRootLocked = false;
             _nextCalibrationSyncTime = 0f;
             _nextRemoteAlignmentSyncTime = 0f;
             _hasMarkerSample = false;
             _localCalibrationReady = false;
             _remoteCalibrationReady = false;
-            _liveCalibrationPhase = IsAprilTagCalibrationActive ? LiveCalibrationPhase.ReadyToPlay : LiveCalibrationPhase.ClientAdjustHost;
+            _liveCalibrationPhase = IsAprilTagCalibrationActive ? LiveCalibrationPhase.HostFinalConfirm : LiveCalibrationPhase.ClientAdjustHost;
             _clientAlignmentConfirmed = false;
             _hostAlignmentConfirmed = false;
+            _spectatorClientAlignmentConfirmed = false;
+            _spectatorHostAlignmentConfirmed = false;
             _localCalibrationReadySince = -1f;
             _lastCalibrationReadySendTime = -999f;
             _lastSentCalibrationReady = false;
@@ -717,9 +944,19 @@ namespace Project.Core
             {
                 _remoteAlignmentRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             }
+            if (_spectatorHostAlignmentRoot != null)
+            {
+                _spectatorHostAlignmentRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            }
+            if (_spectatorClientAlignmentRoot != null)
+            {
+                _spectatorClientAlignmentRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            }
             _projectileShooter?.SetShootingEnabled(false);
             _localShieldVisual?.Deactivate();
             _remoteShieldVisual?.Deactivate();
+            _spectatorHostShieldVisual?.Deactivate();
+            _spectatorClientShieldVisual?.Deactivate();
             _markerTrackingSource?.Begin();
             if (_alwaysVisibleLaser != null)
             {
@@ -729,11 +966,16 @@ namespace Project.Core
             _calibrationView?.SetVisible(true);
             _calibrationView?.SetConfirmVisible(true);
             _calibrationView?.SetConfirmText(IsAprilTagCalibrationActive ? "Confirm" : "Confirm Step");
-            if (_selectedRole == NetworkRole.Client)
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                _calibrationView?.SetStatus("Phase 1/5: Waiting for Client to adjust Host avatar.");
+                _calibrationView?.SetDetectionStatus("<color=#6CA9D9>Five-step serial calibration. Only the active device can adjust each phase.</color>");
+            }
+            else if (_selectedRole == NetworkRole.Client)
             {
                 _calibrationView?.SetStatus(IsAprilTagCalibrationActive
                     ? "Waiting host confirmation...\nAuto AprilTag localization in progress."
-                    : "Phase 1/3: Adjust Host avatar on Client.\nFine-tune, then press Confirm Step.");
+                    : "Phase 1/5: Client adjusts Host avatar.\nFine-tune, then press Confirm Step.");
                 _calibrationView?.SetDetectionStatus(IsAprilTagCalibrationActive
                     ? "<color=#6CA9D9>Detection: searching AprilTag automatically...</color>"
                     : "<color=#6CA9D9>Detection: AprilTag disabled. Live remote alignment only.</color>");
@@ -742,7 +984,7 @@ namespace Project.Core
             {
                 _calibrationView?.SetStatus(IsAprilTagCalibrationActive
                     ? (_worldRootController != null ? _worldRootController.BuildStatusText() : "WorldRoot unavailable")
-                    : "Phase 1/3: Waiting for Client to adjust Host avatar.");
+                    : "Phase 1/5: Waiting for Client to adjust Host avatar.");
                 _calibrationView?.SetDetectionStatus(IsAprilTagCalibrationActive
                     ? "<color=#6CA9D9>Detection: searching AprilTag automatically...</color>"
                     : "<color=#6CA9D9>Detection: AprilTag disabled. Use live refine and Confirm when ready.</color>");
@@ -771,6 +1013,8 @@ namespace Project.Core
             _calibrationView?.SetVisible(false);
             _calibrationView?.SetConfirmVisible(true);
             _markerTrackingSource?.End();
+            _spectatorHostShieldVisual?.Deactivate();
+            _spectatorClientShieldVisual?.Deactivate();
             if (_worldRootMarker != null)
             {
                 _worldRootMarker.SetActive(false);
@@ -796,9 +1040,31 @@ namespace Project.Core
                 _worldRootController?.Tick(Time.deltaTime);
             }
 
-            if (CanAdjustLiveRemoteAlignment() && _networkCoordinator != null && _networkCoordinator.HasRemotePose)
+            if (!IsAprilTagCalibrationActive && CanAdjustLiveRemoteAlignment())
             {
-                _remoteAlignmentController?.Tick(Time.deltaTime);
+                if (_selectedRole == NetworkRole.Client && _networkCoordinator != null && _networkCoordinator.HasRemotePose)
+                {
+                    _remoteAlignmentController?.Tick(Time.deltaTime);
+                }
+                else if (_selectedRole == NetworkRole.Host && _networkCoordinator != null && _networkCoordinator.HasRemotePose)
+                {
+                    _remoteAlignmentController?.Tick(Time.deltaTime);
+                }
+                else if (_selectedRole == NetworkRole.Spectator)
+                {
+                    if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustClient &&
+                        _networkCoordinator != null &&
+                        _networkCoordinator.HasRemotePoseForRole(NetworkRole.Client))
+                    {
+                        _spectatorClientAlignmentController?.Tick(Time.deltaTime);
+                    }
+                    else if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustHost &&
+                             _networkCoordinator != null &&
+                             _networkCoordinator.HasRemotePoseForRole(NetworkRole.Host))
+                    {
+                        _spectatorHostAlignmentController?.Tick(Time.deltaTime);
+                    }
+                }
             }
 
             if (IsAprilTagCalibrationActive && _markerTrackingSource != null)
@@ -853,52 +1119,8 @@ namespace Project.Core
             }
             else
             {
-                if (_selectedRole == NetworkRole.Host)
-                {
-                    _calibrationView?.SetConfirmText(_liveCalibrationPhase == LiveCalibrationPhase.ReadyToPlay ? "Confirm" : "Confirm Step");
-                    string phaseText;
-                    if (_liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost)
-                    {
-                        phaseText = _clientAlignmentConfirmed
-                            ? "Phase 1/3 complete.\nPrepare to adjust Client avatar."
-                            : "Phase 1/3: Waiting for Client to align Host avatar and confirm.";
-                    }
-                    else if (_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient)
-                    {
-                        phaseText = "Phase 2/3: Host adjusts Client avatar.\nPress Confirm Step when done.";
-                    }
-                    else
-                    {
-                        phaseText = "Phase 3/3: Both steps locked.\nPress Confirm to start match.";
-                    }
-
-                    _calibrationView?.SetStatus($"Live remote alignment mode.\n{phaseText}\n{BuildRemoteAlignmentStatusText()}");
-                }
-                else if (_selectedRole == NetworkRole.Client)
-                {
-                    _calibrationView?.SetConfirmText(_liveCalibrationPhase == LiveCalibrationPhase.ReadyToPlay ? "Confirm" : "Confirm Step");
-                    string phaseText;
-                    if (_liveCalibrationPhase == LiveCalibrationPhase.ClientAdjustHost)
-                    {
-                        phaseText = "Phase 1/3: Client adjusts Host avatar.\nPress Confirm Step when done.";
-                    }
-                    else if (_liveCalibrationPhase == LiveCalibrationPhase.HostAdjustClient)
-                    {
-                        phaseText = _hostAlignmentConfirmed
-                            ? "Phase 2/3 complete.\nWaiting for host final Confirm."
-                            : "Phase 2/3: Host is adjusting your avatar.\nPlease wait.";
-                    }
-                    else
-                    {
-                        phaseText = "Phase 3/3: Waiting for host final Confirm.";
-                    }
-
-                    _calibrationView?.SetStatus($"Live remote alignment mode.\n{phaseText}\n{BuildRemoteAlignmentStatusText()}");
-                }
-                else
-                {
-                    _calibrationView?.SetStatus("Live remote alignment mode.");
-                }
+                _calibrationView?.SetConfirmText(_liveCalibrationPhase == LiveCalibrationPhase.HostFinalConfirm ? "Confirm" : "Confirm Step");
+                _calibrationView?.SetStatus($"Live remote alignment mode.\n{BuildLiveCalibrationPhaseStatus()}\n{BuildRemoteAlignmentStatusText()}");
             }
 
             if (IsAprilTagCalibrationActive &&
@@ -916,6 +1138,13 @@ namespace Project.Core
 
         private string BuildCalibrationDetectionText()
         {
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                var hostReady = _networkCoordinator != null && _networkCoordinator.HasRemotePoseForRole(NetworkRole.Host);
+                var clientReady = _networkCoordinator != null && _networkCoordinator.HasRemotePoseForRole(NetworkRole.Client);
+                return $"<color=#6CA9D9>Spectator local calibration.</color>\nHost Stream: {(hostReady ? "<color=#7CFF9A>READY</color>" : "<color=#FF8A8A>WAIT</color>")} / Client Stream: {(clientReady ? "<color=#7CFF9A>READY</color>" : "<color=#FF8A8A>WAIT</color>")}";
+            }
+
             if (_markerTrackingSource == null)
             {
                 return "<color=#9DB2C6>Detection: tracking source unavailable</color>";
@@ -964,6 +1193,11 @@ namespace Project.Core
 
         private string BuildRemoteAlignmentStatusText()
         {
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                return BuildSpectatorAlignmentStatusText();
+            }
+
             if (_networkCoordinator == null || !_networkCoordinator.HasRemotePose || _remoteAlignmentController == null)
             {
                 return "Remote refine: waiting remote avatar";
@@ -974,6 +1208,14 @@ namespace Project.Core
 
         private void UpdateLocalCalibrationReady(float now)
         {
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                _localCalibrationReady = _spectatorClientAlignmentConfirmed && _spectatorHostAlignmentConfirmed;
+                _remoteCalibrationReady = false;
+                _localCalibrationReadySince = _localCalibrationReady ? now : -1f;
+                return;
+            }
+
             if (!IsAprilTagCalibrationActive)
             {
                 var hasPose = _networkCoordinator != null && _networkCoordinator.IsConnected && _networkCoordinator.HasRemotePose;
@@ -985,9 +1227,21 @@ namespace Project.Core
                 {
                     _localCalibrationReady = _selectedRole == NetworkRole.Host ? hasPose : _hostAlignmentConfirmed;
                 }
+                else if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustClient)
+                {
+                    _localCalibrationReady = _selectedRole == NetworkRole.Spectator
+                        ? (_networkCoordinator != null && _networkCoordinator.HasRemotePoseForRole(NetworkRole.Client))
+                        : _spectatorClientAlignmentConfirmed;
+                }
+                else if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustHost)
+                {
+                    _localCalibrationReady = _selectedRole == NetworkRole.Spectator
+                        ? (_networkCoordinator != null && _networkCoordinator.HasRemotePoseForRole(NetworkRole.Host))
+                        : _spectatorHostAlignmentConfirmed;
+                }
                 else
                 {
-                    _localCalibrationReady = _clientAlignmentConfirmed && _hostAlignmentConfirmed;
+                    _localCalibrationReady = _clientAlignmentConfirmed && _hostAlignmentConfirmed && _spectatorClientAlignmentConfirmed && _spectatorHostAlignmentConfirmed;
                 }
 
                 _localCalibrationReadySince = _localCalibrationReady ? now : -1f;
@@ -1035,6 +1289,11 @@ namespace Project.Core
 
         private void SendCalibrationReadyIfNeeded(float now)
         {
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                return;
+            }
+
             if (_networkCoordinator == null || !_networkCoordinator.IsConnected || _selectedRole == NetworkRole.None)
             {
                 return;
@@ -1106,7 +1365,7 @@ namespace Project.Core
 
         private void OnStartPlayingRequested()
         {
-            if (_selectedRole != NetworkRole.Client || _stateMachine == null)
+            if (_selectedRole == NetworkRole.Host || _stateMachine == null)
             {
                 return;
             }
@@ -1118,7 +1377,9 @@ namespace Project.Core
                 return;
             }
 
-            if (_stateMachine.CurrentId == AppStateId.Calibration || _stateMachine.CurrentId == AppStateId.LobbyClient)
+            if (_stateMachine.CurrentId == AppStateId.Calibration ||
+                _stateMachine.CurrentId == AppStateId.LobbyClient ||
+                _stateMachine.CurrentId == AppStateId.LobbySpectator)
             {
                 _stateMachine.ChangeState(AppStateId.Playing);
             }
@@ -1136,6 +1397,7 @@ namespace Project.Core
 
         private void OnRemoteAlignmentReceived(RemoteAlignmentPayload payload)
         {
+            // 这里负责把远端设备发来的“该步骤已确认”消息转换成当前设备的阶段推进。
             if (payload == null || IsAprilTagCalibrationActive)
             {
                 return;
@@ -1155,7 +1417,25 @@ namespace Project.Core
                 payload.confirmed)
             {
                 _hostAlignmentConfirmed = true;
-                _liveCalibrationPhase = LiveCalibrationPhase.ReadyToPlay;
+                _liveCalibrationPhase = LiveCalibrationPhase.SpectatorAdjustClient;
+                return;
+            }
+
+            if (payload.senderRole == NetworkRole.Spectator.ToString() &&
+                payload.stage == LiveCalibrationPhase.SpectatorAdjustClient.ToString() &&
+                payload.confirmed)
+            {
+                _spectatorClientAlignmentConfirmed = true;
+                _liveCalibrationPhase = LiveCalibrationPhase.SpectatorAdjustHost;
+                return;
+            }
+
+            if (payload.senderRole == NetworkRole.Spectator.ToString() &&
+                payload.stage == LiveCalibrationPhase.SpectatorAdjustHost.ToString() &&
+                payload.confirmed)
+            {
+                _spectatorHostAlignmentConfirmed = true;
+                _liveCalibrationPhase = LiveCalibrationPhase.HostFinalConfirm;
             }
         }
 
@@ -1201,15 +1481,20 @@ namespace Project.Core
                 shot.lifetime);
         }
 
-        private void OnRemoteShootReceived(ShootPayload shot)
+        private void OnRoleShootReceived(NetworkRole senderRole, ShootPayload shot)
         {
-            if (_projectileShooter == null || shot == null || _stateMachine == null || _stateMachine.CurrentId != AppStateId.Playing)
+            if (_projectileShooter == null ||
+                shot == null ||
+                senderRole == NetworkRole.None ||
+                senderRole == NetworkRole.Spectator ||
+                _stateMachine == null ||
+                _stateMachine.CurrentId != AppStateId.Playing)
             {
                 return;
             }
 
-            var visualSpawn = TransformRemotePositionForDisplay(shot.spawnPosition);
-            var visualDirection = TransformRemoteDirectionForDisplay(shot.direction);
+            var visualSpawn = TransformRolePositionForDisplay(senderRole, shot.spawnPosition);
+            var visualDirection = TransformRoleDirectionForDisplay(senderRole, shot.direction);
             _projectileShooter.SpawnRemoteProjectile(
                 visualSpawn,
                 visualDirection,
@@ -1217,7 +1502,7 @@ namespace Project.Core
                 shot.maxDistance,
                 shot.lifetime);
 
-            if (_selectedRole == NetworkRole.Host)
+            if (_selectedRole == NetworkRole.Host && senderRole == NetworkRole.Client)
             {
                 if (Time.time < _clientNextShootAllowedTime)
                 {
@@ -1334,27 +1619,41 @@ namespace Project.Core
 
         private void OnEnterPlaying()
         {
+            CancelSpectatorWallPlacement();
             if (_hostHp <= 0 || _clientHp <= 0)
             {
                 _hostHp = GetMaxHp();
                 _clientHp = GetMaxHp();
             }
 
-            _projectileShooter?.SetShootingEnabled(true);
+            var canFight = _selectedRole == NetworkRole.Host || _selectedRole == NetworkRole.Client;
+            _projectileShooter?.SetShootingEnabled(canFight);
             if (_alwaysVisibleLaser != null)
             {
-                _alwaysVisibleLaser.enabled = true;
+                _alwaysVisibleLaser.enabled = canFight;
             }
 
             EnsureShieldVisuals();
             BindShieldAnchors();
-            _playerHudView?.SetVisible(true);
+            _playerHudView?.SetVisible(canFight);
+            _spectatorControlView?.SetVisible(_selectedRole == NetworkRole.Spectator);
+            _spectatorBarrageView?.SetVisible(_selectedRole == NetworkRole.Spectator);
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                _remoteProxy?.Hide();
+            }
+            else
+            {
+                _spectatorHostProxy?.Hide();
+                _spectatorClientProxy?.Hide();
+            }
             RefreshRayVisuals();
             Debug.Log($"M5: Enter Playing as {_selectedRole}. HostHP={_hostHp} ClientHP={_clientHp}");
         }
 
         private void OnExitPlaying()
         {
+            CancelSpectatorWallPlacement();
             _projectileShooter?.SetShootingEnabled(false);
             if (_alwaysVisibleLaser != null)
             {
@@ -1364,20 +1663,35 @@ namespace Project.Core
             _calibrationView?.SetVisible(false);
             _localShieldVisual?.Deactivate();
             _remoteShieldVisual?.Deactivate();
+            _spectatorHostShieldVisual?.Deactivate();
+            _spectatorClientShieldVisual?.Deactivate();
             _playerHudView?.SetVisible(false);
+            _spectatorControlView?.SetVisible(false);
+            _spectatorBarrageView?.SetVisible(false);
+            if (_selectedRole != NetworkRole.Spectator)
+            {
+                _spectatorHostProxy?.Hide();
+                _spectatorClientProxy?.Hide();
+            }
         }
 
         private void OnEnterResult()
         {
+            CancelSpectatorWallPlacement();
             _projectileShooter?.SetShootingEnabled(false);
             _localShieldVisual?.Deactivate();
             _remoteShieldVisual?.Deactivate();
+            _spectatorHostShieldVisual?.Deactivate();
+            _spectatorClientShieldVisual?.Deactivate();
             _localRematchReady = false;
             _remoteRematchReady = false;
             _resultView?.SetVisible(true);
-            _resultView?.SetStatus(_resultText + $"\n[{BuildStamp}]\n\nPress Retry. Both players must confirm to rematch.");
-            _resultView?.SetPrimaryButton("Retry", true);
-            _playerHudView?.SetVisible(true);
+            var canRematch = _selectedRole == NetworkRole.Host || _selectedRole == NetworkRole.Client;
+            _resultView?.SetStatus(canRematch
+                ? _resultText + $"\n[{BuildStamp}]\n\nPress Retry. Both players must confirm to rematch."
+                : _resultText + $"\n[{BuildStamp}]");
+            _resultView?.SetPrimaryButton(canRematch ? "Retry" : "Observe", canRematch);
+            _playerHudView?.SetVisible(canRematch);
             Debug.Log($"M5: Enter Result => {_resultText}");
         }
 
@@ -1411,9 +1725,91 @@ namespace Project.Core
         private void HandleResultBackToMenuClicked()
         {
             _networkCoordinator?.Stop();
+            ClearObstacleVisuals();
+            _obstacleStates.Clear();
             _selectedRole = NetworkRole.None;
             _clientWorldRootLocked = false;
             _stateMachine?.ChangeState(AppStateId.MainMenu);
+        }
+
+        private void HandleSpectatorHealHostClicked()
+        {
+            TrySubmitSpectatorVote(NetworkRole.Host);
+        }
+
+        private void HandleSpectatorHealClientClicked()
+        {
+            TrySubmitSpectatorVote(NetworkRole.Client);
+        }
+
+        private void HandleSpectatorBarrageAClicked()
+        {
+            ShowLocalSpectatorBarrage(GetSpectatorBarrageWordA());
+        }
+
+        private void HandleSpectatorBarrageBClicked()
+        {
+            ShowLocalSpectatorBarrage(GetSpectatorBarrageWordB());
+        }
+
+        private void HandleSpectatorBarrageCClicked()
+        {
+            ShowLocalSpectatorBarrage(GetSpectatorBarrageWordC());
+        }
+
+        private void HandleSpectatorCheerClicked()
+        {
+            _spectatorAudioPlayer?.Play(GetSpectatorCheerClip(), GetSpectatorAudioVolume());
+        }
+
+        private void HandleSpectatorApplauseClicked()
+        {
+            _spectatorAudioPlayer?.Play(GetSpectatorApplauseClip(), GetSpectatorAudioVolume());
+        }
+
+        private void HandleSpectatorPlaceWallClicked()
+        {
+            if (_selectedRole != NetworkRole.Spectator || _stateMachine == null || _stateMachine.CurrentId != AppStateId.Playing)
+            {
+                return;
+            }
+
+            if (_spectatorWallPlacementActive)
+            {
+                return;
+            }
+
+            if (!TryEnterSpectatorWallPlacement())
+            {
+                _spectatorControlView?.SetStatus("Place Wall unavailable.\nNeed both Host and Client tracked before obstacle preview.");
+            }
+        }
+
+        private void TrySubmitSpectatorVote(NetworkRole targetRole)
+        {
+            if (_selectedRole != NetworkRole.Spectator || _networkCoordinator == null || !_networkCoordinator.IsConnected)
+            {
+                return;
+            }
+
+            var now = Time.time;
+            if (now < _localSpectatorVoteCooldownUntil)
+            {
+                return;
+            }
+
+            _localSpectatorVoteCooldownUntil = now + GetSpectatorVoteCooldown();
+            _networkCoordinator.NotifySpectatorVote(targetRole.ToString());
+        }
+
+        private void ShowLocalSpectatorBarrage(string message)
+        {
+            if (_selectedRole != NetworkRole.Spectator || string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
+
+            _spectatorBarrageView?.ShowMessage(message, GetSpectatorBarrageDuration(), GetSpectatorBarrageSpeed());
         }
 
         private void OnLocalShieldPressed()
@@ -1439,20 +1835,24 @@ namespace Project.Core
             }
         }
 
-        private void OnRemoteShieldReceived(ShieldPayload payload)
+        private void OnRoleShieldReceived(NetworkRole senderRole, ShieldPayload payload)
         {
-            if (payload == null || !payload.active)
+            if (payload == null || !payload.active || senderRole == NetworkRole.None || senderRole == NetworkRole.Spectator)
             {
                 return;
             }
 
-            if (_selectedRole == NetworkRole.Host)
+            if (_selectedRole == NetworkRole.Host && senderRole == NetworkRole.Client)
             {
                 ActivateClientShieldAuthoritative(payload.duration);
             }
-            else if (_selectedRole == NetworkRole.Client)
+            else if (_selectedRole == NetworkRole.Client && senderRole == NetworkRole.Host)
             {
                 ActivateHostShieldVisual(payload.duration);
+            }
+            else if (_selectedRole == NetworkRole.Spectator)
+            {
+                ActivateSpectatorShieldVisual(senderRole, payload.duration);
             }
         }
 
@@ -1465,7 +1865,69 @@ namespace Project.Core
 
             _hostHp = payload.hostHp;
             _clientHp = payload.clientHp;
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                var maxHp = Mathf.Max(1, GetMaxHp());
+                _spectatorHostProxy?.SetEnemyHealthNormalized(Mathf.Clamp01(_hostHp / (float)maxHp));
+                _spectatorClientProxy?.SetEnemyHealthNormalized(Mathf.Clamp01(_clientHp / (float)maxHp));
+            }
             Debug.Log($"M5: HP update => Host={_hostHp} Client={_clientHp}");
+        }
+
+        private void OnSpectatorVoteReceived(SpectatorVotePayload payload)
+        {
+            if (_selectedRole != NetworkRole.Host || payload == null || string.IsNullOrEmpty(payload.targetRole))
+            {
+                return;
+            }
+
+            var now = Time.time;
+            if (now < _hostSpectatorVoteCooldownUntil)
+            {
+                return;
+            }
+
+            var target = payload.targetRole;
+            if (string.Equals(target, NetworkRole.Host.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                _hostHp = Mathf.Min(GetMaxHp(), _hostHp + GetSpectatorHealAmount());
+            }
+            else if (string.Equals(target, NetworkRole.Client.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                _clientHp = Mathf.Min(GetMaxHp(), _clientHp + GetSpectatorHealAmount());
+            }
+            else
+            {
+                return;
+            }
+
+            _hostSpectatorVoteCooldownUntil = now + GetSpectatorVoteCooldown();
+            _networkCoordinator?.NotifyHostHpUpdate(_hostHp, _clientHp);
+            UpdateEnemyHealthBar();
+        }
+
+        private void OnObstacleSpawnRequestReceived(ObstacleSpawnRequestPayload payload)
+        {
+            if (_selectedRole != NetworkRole.Host ||
+                payload == null ||
+                string.IsNullOrEmpty(payload.anchorType) ||
+                _stateMachine == null ||
+                _stateMachine.CurrentId != AppStateId.Playing)
+            {
+                return;
+            }
+
+            TrySpawnHostObstacleFromRequest(payload);
+        }
+
+        private void OnObstacleStateReceived(ObstacleStatePayload payload)
+        {
+            if (payload == null || _selectedRole == NetworkRole.Host)
+            {
+                return;
+            }
+
+            ApplyObstacleState(payload);
         }
 
         private void OnMatchResultReceived(MatchResultPayload payload)
@@ -1479,7 +1941,9 @@ namespace Project.Core
             var localWon =
                 (_selectedRole == NetworkRole.Host && winner == "Host") ||
                 (_selectedRole == NetworkRole.Client && winner == "Client");
-            _resultText = localWon ? "WIN" : "LOSE";
+            _resultText = _selectedRole == NetworkRole.Spectator
+                ? $"{winner.ToUpperInvariant()} WIN"
+                : (localWon ? "WIN" : "LOSE");
             if (_stateMachine != null && _stateMachine.CurrentId != AppStateId.Result)
             {
                 _stateMachine.ChangeState(AppStateId.Result);
@@ -1559,6 +2023,7 @@ namespace Project.Core
             }
 
             UpdateLocalHud();
+            TickObstacleStates(now);
         }
 
         private void ResetCombatForNewMatch()
@@ -1572,7 +2037,12 @@ namespace Project.Core
             _hostNextShootAllowedTime = 0f;
             _clientNextShootAllowedTime = 0f;
             _localShootCooldownUntil = 0f;
+            _localSpectatorVoteCooldownUntil = 0f;
+            _hostSpectatorVoteCooldownUntil = 0f;
+            _hostWallSpawnCooldownUntil = 0f;
+            _hostObstacleStateBroadcastCooldownUntil = 0f;
             _resultText = "Result";
+            ResetObstaclesForNewMatch();
             _networkCoordinator?.NotifyHostHpUpdate(_hostHp, _clientHp);
             UpdateEnemyHealthBar();
         }
@@ -1587,6 +2057,12 @@ namespace Project.Core
             if (Time.time < _clientShieldEndTime)
             {
                 Debug.Log("M5: Host shot blocked by Client shield");
+                return;
+            }
+
+            if (TryResolveObstacleHit(shot))
+            {
+                Debug.Log("M6: Host shot blocked by wall");
                 return;
             }
 
@@ -1614,6 +2090,12 @@ namespace Project.Core
             if (Time.time < _hostShieldEndTime)
             {
                 Debug.Log("M5: Client shot blocked by Host shield");
+                return;
+            }
+
+            if (TryResolveObstacleHit(shot))
+            {
+                Debug.Log("M6: Client shot blocked by wall");
                 return;
             }
 
@@ -1656,6 +2138,90 @@ namespace Project.Core
             return true;
         }
 
+        private void UpdateSpectatorVisuals()
+        {
+            if (_networkCoordinator == null)
+            {
+                return;
+            }
+
+            if (_networkCoordinator.TryGetRemotePose(NetworkRole.Host, out var hostPose))
+            {
+                _spectatorHostProxy?.ApplyPose(hostPose);
+                _spectatorHostAlignmentController?.SetPivotTransform(_spectatorHostProxy != null ? _spectatorHostProxy.HeadTransform : null);
+            }
+
+            if (_networkCoordinator.TryGetRemotePose(NetworkRole.Client, out var clientPose))
+            {
+                _spectatorClientProxy?.ApplyPose(clientPose);
+                _spectatorClientAlignmentController?.SetPivotTransform(_spectatorClientProxy != null ? _spectatorClientProxy.HeadTransform : null);
+            }
+        }
+
+        private void TickSpectatorCalibration()
+        {
+            UpdateSpectatorVisuals();
+            _calibrationView?.SetConfirmVisible(true);
+            _calibrationView?.SetDetectionStatus(BuildCalibrationDetectionText());
+            _calibrationView?.SetConfirmText(_liveCalibrationPhase == LiveCalibrationPhase.HostFinalConfirm ? "Confirm" : "Confirm Step");
+            _calibrationView?.SetStatus($"Live remote alignment mode.\n{BuildLiveCalibrationPhaseStatus()}\n{BuildRemoteAlignmentStatusText()}");
+        }
+
+        private string BuildSpectatorAlignmentStatusText()
+        {
+            RemoteAlignmentController controller = null;
+            string label = string.Empty;
+            if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustHost)
+            {
+                controller = _spectatorHostAlignmentController;
+                label = "Spectator -> Host";
+            }
+            else if (_liveCalibrationPhase == LiveCalibrationPhase.SpectatorAdjustClient)
+            {
+                controller = _spectatorClientAlignmentController;
+                label = "Spectator -> Client";
+            }
+
+            if (controller == null)
+            {
+                return "Spectator offset: ready";
+            }
+
+            return $"Target: {label}\n{controller.BuildStatusText()}";
+        }
+
+        private string BuildLiveCalibrationPhaseStatus()
+        {
+            switch (_liveCalibrationPhase)
+            {
+                case LiveCalibrationPhase.ClientAdjustHost:
+                    return _selectedRole == NetworkRole.Client
+                        ? "Phase 1/5: Client adjusts Host avatar.\nOnly Client can adjust. Press Confirm Step when done."
+                        : "Phase 1/5: Waiting for Client to adjust Host avatar.";
+                case LiveCalibrationPhase.HostAdjustClient:
+                    return _selectedRole == NetworkRole.Host
+                        ? "Phase 2/5: Host adjusts Client avatar.\nOnly Host can adjust. Press Confirm Step when done."
+                        : "Phase 2/5: Waiting for Host to adjust Client avatar.";
+                case LiveCalibrationPhase.SpectatorAdjustClient:
+                    return _selectedRole == NetworkRole.Spectator
+                        ? "Phase 3/5: Spectator adjusts Client avatar.\nOnly Spectator can adjust. Press Confirm Step when done."
+                        : "Phase 3/5: Waiting for Spectator to adjust Client avatar.";
+                case LiveCalibrationPhase.SpectatorAdjustHost:
+                    return _selectedRole == NetworkRole.Spectator
+                        ? "Phase 4/5: Spectator adjusts Host avatar.\nOnly Spectator can adjust. Press Confirm Step when done."
+                        : "Phase 4/5: Waiting for Spectator to adjust Host avatar.";
+                default:
+                    return _selectedRole == NetworkRole.Host
+                        ? "Phase 5/5: All four steps confirmed.\nOnly Host can press Confirm to start."
+                        : "Phase 5/5: Waiting for Host final Confirm.";
+            }
+        }
+
+        private string BuildLiveCalibrationWaitingStatus()
+        {
+            return BuildLiveCalibrationPhaseStatus();
+        }
+
         private Vector3 TransformRemotePositionForDisplay(Vector3 rawPosition)
         {
             return _remoteAlignmentRoot != null ? _remoteAlignmentRoot.TransformPoint(rawPosition) : rawPosition;
@@ -1665,6 +2231,86 @@ namespace Project.Core
         {
             var dir = rawDirection.sqrMagnitude < 0.0001f ? Vector3.forward : rawDirection.normalized;
             return _remoteAlignmentRoot != null ? (_remoteAlignmentRoot.rotation * dir).normalized : dir;
+        }
+
+        private Vector3 TransformRolePositionForDisplay(NetworkRole senderRole, Vector3 rawPosition)
+        {
+            var root = GetAlignmentRootForRole(senderRole);
+            return root != null ? root.TransformPoint(rawPosition) : rawPosition;
+        }
+
+        private Vector3 TransformRoleDirectionForDisplay(NetworkRole senderRole, Vector3 rawDirection)
+        {
+            var dir = rawDirection.sqrMagnitude < 0.0001f ? Vector3.forward : rawDirection.normalized;
+            var root = GetAlignmentRootForRole(senderRole);
+            return root != null ? (root.rotation * dir).normalized : dir;
+        }
+
+        private Vector3 TransformObstaclePositionForDisplay(Vector3 rawPosition)
+        {
+            if (_selectedRole == NetworkRole.Host)
+            {
+                return rawPosition;
+            }
+
+            if (_selectedRole == NetworkRole.Client)
+            {
+                return TransformRemotePositionForDisplay(rawPosition);
+            }
+
+            if (_selectedRole == NetworkRole.Spectator &&
+                TryGetArenaWorldBasis(out var rawCenter, out var rawForward, out var rawRight, out _) &&
+                TryGetArenaDisplayBasis(out var displayCenter, out var displayForward, out var displayRight, out _))
+            {
+                var delta = rawPosition - rawCenter;
+                var localX = Vector3.Dot(delta, rawRight);
+                var localY = delta.y;
+                var localZ = Vector3.Dot(delta, rawForward);
+                return displayCenter + displayRight * localX + Vector3.up * localY + displayForward * localZ;
+            }
+
+            return rawPosition;
+        }
+
+        private Quaternion TransformObstacleRotationForDisplay(Quaternion rawRotation)
+        {
+            if (_selectedRole == NetworkRole.Host)
+            {
+                return rawRotation;
+            }
+
+            if (_selectedRole == NetworkRole.Client)
+            {
+                return _remoteAlignmentRoot != null ? _remoteAlignmentRoot.rotation * rawRotation : rawRotation;
+            }
+
+            if (_selectedRole == NetworkRole.Spectator &&
+                TryGetArenaWorldBasis(out _, out _, out _, out var rawBaseYaw) &&
+                TryGetArenaDisplayBasis(out _, out _, out _, out var displayBaseYaw))
+            {
+                var yawOffset = Mathf.DeltaAngle(rawBaseYaw, rawRotation.eulerAngles.y);
+                return Quaternion.Euler(0f, displayBaseYaw + yawOffset, 0f);
+            }
+
+            return rawRotation;
+        }
+
+        private Transform GetAlignmentRootForRole(NetworkRole senderRole)
+        {
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                if (senderRole == NetworkRole.Host)
+                {
+                    return _spectatorHostAlignmentRoot;
+                }
+
+                if (senderRole == NetworkRole.Client)
+                {
+                    return _spectatorClientAlignmentRoot;
+                }
+            }
+
+            return _remoteAlignmentRoot;
         }
 
         private bool IsShotHitPosition(M1ProjectileShooter.ShotInfo shot, Vector3 targetPosition)
@@ -1728,6 +2374,21 @@ namespace Project.Core
             _remoteShieldVisual?.Activate(d);
         }
 
+        private void ActivateSpectatorShieldVisual(NetworkRole senderRole, float duration)
+        {
+            var d = Mathf.Max(0.1f, duration);
+            if (senderRole == NetworkRole.Host)
+            {
+                _hostShieldEndTime = Time.time + d;
+                _spectatorHostShieldVisual?.Activate(d);
+            }
+            else if (senderRole == NetworkRole.Client)
+            {
+                _clientShieldEndTime = Time.time + d;
+                _spectatorClientShieldVisual?.Activate(d);
+            }
+        }
+
         private void EnsureShieldVisuals()
         {
             if (_localShieldVisual == null)
@@ -1755,6 +2416,40 @@ namespace Project.Core
                     _remoteShieldVisual = remoteShieldAnchor.gameObject.AddComponent<M5ShieldVisual>();
                 }
             }
+
+            if (_spectatorHostShieldVisual == null)
+            {
+                var hostShieldAnchor = transform.Find("SpectatorHostShieldRoot");
+                if (hostShieldAnchor == null)
+                {
+                    var rootGo = new GameObject("SpectatorHostShieldRoot");
+                    rootGo.transform.SetParent(transform, false);
+                    hostShieldAnchor = rootGo.transform;
+                }
+
+                _spectatorHostShieldVisual = hostShieldAnchor.GetComponent<M5ShieldVisual>();
+                if (_spectatorHostShieldVisual == null)
+                {
+                    _spectatorHostShieldVisual = hostShieldAnchor.gameObject.AddComponent<M5ShieldVisual>();
+                }
+            }
+
+            if (_spectatorClientShieldVisual == null)
+            {
+                var clientShieldAnchor = transform.Find("SpectatorClientShieldRoot");
+                if (clientShieldAnchor == null)
+                {
+                    var rootGo = new GameObject("SpectatorClientShieldRoot");
+                    rootGo.transform.SetParent(transform, false);
+                    clientShieldAnchor = rootGo.transform;
+                }
+
+                _spectatorClientShieldVisual = clientShieldAnchor.GetComponent<M5ShieldVisual>();
+                if (_spectatorClientShieldVisual == null)
+                {
+                    _spectatorClientShieldVisual = clientShieldAnchor.gameObject.AddComponent<M5ShieldVisual>();
+                }
+            }
         }
 
         private void BindShieldAnchors()
@@ -1768,6 +2463,558 @@ namespace Project.Core
             {
                 _remoteShieldVisual.BindAnchor(_remoteProxy.HeadTransform);
             }
+
+            if (_spectatorHostShieldVisual != null && _spectatorHostProxy != null && _spectatorHostProxy.HeadTransform != null)
+            {
+                _spectatorHostShieldVisual.BindAnchor(_spectatorHostProxy.HeadTransform);
+            }
+
+            if (_spectatorClientShieldVisual != null && _spectatorClientProxy != null && _spectatorClientProxy.HeadTransform != null)
+            {
+                _spectatorClientShieldVisual.BindAnchor(_spectatorClientProxy.HeadTransform);
+            }
+        }
+
+        private bool TryEnterSpectatorWallPlacement()
+        {
+            if (_selectedRole != NetworkRole.Spectator)
+            {
+                return false;
+            }
+
+            if (!TryGetArenaDisplayBasis(out var displayCenter, out var displayForward, out _, out var displayBaseYaw))
+            {
+                return false;
+            }
+
+            CancelSpectatorWallPlacement();
+
+            _spectatorWallPreview = new WallObstacleRuntime("SpectatorWallPreview", -1, _obstacleVisualRoot, GetWallSize(), isPreview: true);
+            _spectatorWallPlacementController = new RemoteAlignmentController(
+                _spectatorWallPreview.Transform,
+                calibrationMoveSpeed,
+                calibrationRotateSpeed,
+                calibrationHeightSpeed);
+            _spectatorWallPlacementController.SetPivotTransform(_spectatorWallPreview.Transform);
+
+            var forward = Vector3.ProjectOnPlane(Camera.main != null ? Camera.main.transform.forward : displayForward, Vector3.up).normalized;
+            if (forward.sqrMagnitude < 0.0001f)
+            {
+                forward = displayForward;
+            }
+
+            var initialPosition = displayCenter + forward * GetWallPlacementDistance();
+            initialPosition.y = displayCenter.y;
+            _spectatorWallPreview.SetTransform(initialPosition, Quaternion.Euler(0f, displayBaseYaw, 0f));
+            _spectatorWallPreview.SetPreviewVisible(true);
+            _spectatorWallPlacementActive = true;
+            _wallPlacementLeftTriggerHeld = false;
+            _wallPlacementRightTriggerHeld = false;
+            return true;
+        }
+
+        private void CancelSpectatorWallPlacement()
+        {
+            _spectatorWallPlacementActive = false;
+            _wallPlacementLeftTriggerHeld = false;
+            _wallPlacementRightTriggerHeld = false;
+            _spectatorWallPlacementController = null;
+            if (_spectatorWallPreview != null)
+            {
+                _spectatorWallPreview.Dispose();
+                _spectatorWallPreview = null;
+            }
+        }
+
+        private void TickSpectatorWallPlacement()
+        {
+            if (!_spectatorWallPlacementActive || _selectedRole != NetworkRole.Spectator || _stateMachine == null || _stateMachine.CurrentId != AppStateId.Playing)
+            {
+                return;
+            }
+
+            _spectatorWallPlacementController?.Tick(Time.deltaTime);
+            _spectatorControlView?.SetStatus(
+                "Placement Preview\nRight Stick: Move XZ / Hold X or Y: Rotate / A/B: Height\nRight Trigger: Confirm Wall / Left Trigger: Cancel");
+
+            EnsureWallPlacementDevices();
+
+            var rightTriggerPressed = TryReadTriggerButton(_wallPlacementRightController);
+            var leftTriggerPressed = TryReadTriggerButton(_wallPlacementLeftController);
+
+            if (rightTriggerPressed && !_wallPlacementRightTriggerHeld)
+            {
+                ConfirmSpectatorWallPlacement();
+            }
+            else if (leftTriggerPressed && !_wallPlacementLeftTriggerHeld)
+            {
+                CancelSpectatorWallPlacement();
+            }
+
+            _wallPlacementRightTriggerHeld = rightTriggerPressed;
+            _wallPlacementLeftTriggerHeld = leftTriggerPressed;
+        }
+
+        private void ConfirmSpectatorWallPlacement()
+        {
+            if (_spectatorWallPreview == null ||
+                _networkCoordinator == null ||
+                !_networkCoordinator.IsConnected ||
+                !TryGetArenaDisplayBasis(out var displayCenter, out var displayForward, out var displayRight, out var displayBaseYaw))
+            {
+                CancelSpectatorWallPlacement();
+                return;
+            }
+
+            var delta = _spectatorWallPreview.Transform.position - displayCenter;
+            var localOffset = new Vector3(
+                Vector3.Dot(delta, displayRight),
+                delta.y,
+                Vector3.Dot(delta, displayForward));
+            var yawOffset = Mathf.DeltaAngle(displayBaseYaw, _spectatorWallPreview.Transform.eulerAngles.y);
+            _networkCoordinator.NotifyObstacleSpawnRequest(ObstacleArenaAnchorType, localOffset, yawOffset);
+            CancelSpectatorWallPlacement();
+        }
+
+        private void EnsureWallPlacementDevices()
+        {
+            if (!_wallPlacementLeftController.isValid)
+            {
+                _wallPlacementLeftController = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.LeftHand);
+            }
+
+            if (!_wallPlacementRightController.isValid)
+            {
+                _wallPlacementRightController = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.RightHand);
+            }
+        }
+
+        private static bool TryReadTriggerButton(UnityEngine.XR.InputDevice device)
+        {
+            if (!device.isValid)
+            {
+                return false;
+            }
+
+            var pressed = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.triggerButton, out var triggerButton) && triggerButton;
+            if (pressed)
+            {
+                return true;
+            }
+
+            var axis = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.trigger, out var triggerAxis) ? triggerAxis : 0f;
+            return axis > 0.25f;
+        }
+
+        private void TickObstacleStates(float now)
+        {
+            if (_selectedRole != NetworkRole.Host || _obstacleStates.Count == 0)
+            {
+                return;
+            }
+
+            var obstacleIds = new List<int>();
+            obstacleIds.AddRange(_obstacleStates.Keys);
+            var changed = false;
+            for (var index = 0; index < obstacleIds.Count; index++)
+            {
+                var obstacleId = obstacleIds[index];
+                if (!_obstacleStates.TryGetValue(obstacleId, out var payload) || payload == null || !payload.active)
+                {
+                    continue;
+                }
+
+                payload.currentHp = Mathf.Max(0f, payload.currentHp - GetWallDecayPerSecond() * Time.deltaTime);
+                ApplyObstacleState(payload);
+                changed = true;
+                if (payload.currentHp <= 0.001f)
+                {
+                    RemoveObstacleState(obstacleId, broadcastIfHost: true);
+                }
+            }
+
+            if (changed && now >= _hostObstacleStateBroadcastCooldownUntil)
+            {
+                BroadcastAllObstacleStates();
+                _hostObstacleStateBroadcastCooldownUntil = now + 0.1f;
+            }
+        }
+
+        private void TrySpawnHostObstacleFromRequest(ObstacleSpawnRequestPayload payload)
+        {
+            if (_selectedRole != NetworkRole.Host ||
+                payload == null ||
+                payload.anchorType != ObstacleArenaAnchorType ||
+                Time.time < _hostWallSpawnCooldownUntil ||
+                GetActiveObstacleCount() >= GetWallMaxActiveCount() ||
+                !TryGetArenaWorldBasis(out var center, out var forward, out var right, out var baseYaw))
+            {
+                return;
+            }
+
+            var worldPosition = center + right * payload.localOffset.x + Vector3.up * payload.localOffset.y + forward * payload.localOffset.z;
+            var worldRotation = Quaternion.Euler(0f, baseYaw + payload.yawOffset, 0f);
+            var obstacleId = _nextObstacleId++;
+            var state = new ObstacleStatePayload
+            {
+                obstacleId = obstacleId,
+                position = worldPosition,
+                rotation = worldRotation,
+                size = GetWallSize(),
+                currentHp = GetWallMaxHp(),
+                maxHp = GetWallMaxHp(),
+                active = true
+            };
+
+            _hostWallSpawnCooldownUntil = Time.time + GetWallSpawnCooldown();
+            ApplyObstacleState(state);
+            BroadcastObstacleState(state);
+        }
+
+        private bool TryResolveObstacleHit(M1ProjectileShooter.ShotInfo shot)
+        {
+            if (_selectedRole != NetworkRole.Host || _obstacleVisuals.Count == 0)
+            {
+                return false;
+            }
+
+            var ray = new Ray(shot.spawnPosition, shot.direction.sqrMagnitude < 0.0001f ? Vector3.forward : shot.direction.normalized);
+            var maxDistance = Mathf.Max(0.1f, shot.maxDistance);
+            var closestDistance = float.MaxValue;
+            var closestObstacleId = -1;
+            var obstacleIds = new List<int>();
+            obstacleIds.AddRange(_obstacleVisuals.Keys);
+            for (var index = 0; index < obstacleIds.Count; index++)
+            {
+                var obstacleId = obstacleIds[index];
+                if (!_obstacleVisuals.TryGetValue(obstacleId, out var obstacleRuntime) ||
+                    obstacleRuntime == null ||
+                    obstacleRuntime.Collider == null ||
+                    !_obstacleStates.TryGetValue(obstacleId, out var obstacleState) ||
+                    obstacleState == null ||
+                    !obstacleState.active)
+                {
+                    continue;
+                }
+
+                if (obstacleRuntime.Collider.Raycast(ray, out var hitInfo, maxDistance) && hitInfo.distance < closestDistance)
+                {
+                    closestDistance = hitInfo.distance;
+                    closestObstacleId = obstacleId;
+                }
+            }
+
+            if (closestObstacleId < 0)
+            {
+                return false;
+            }
+
+            ApplyObstacleDamage(closestObstacleId, GetWallShotDamage());
+            return true;
+        }
+
+        private void ApplyObstacleDamage(int obstacleId, float damage)
+        {
+            if (_selectedRole != NetworkRole.Host ||
+                !_obstacleStates.TryGetValue(obstacleId, out var payload) ||
+                payload == null ||
+                !payload.active)
+            {
+                return;
+            }
+
+            payload.currentHp = Mathf.Max(0f, payload.currentHp - Mathf.Max(0f, damage));
+            ApplyObstacleState(payload);
+            if (payload.currentHp <= 0.001f)
+            {
+                RemoveObstacleState(obstacleId, broadcastIfHost: true);
+                return;
+            }
+
+            BroadcastObstacleState(payload);
+        }
+
+        private void ApplyObstacleState(ObstacleStatePayload payload)
+        {
+            if (payload == null)
+            {
+                return;
+            }
+
+            if (!payload.active || payload.currentHp <= 0.001f)
+            {
+                RemoveObstacleState(payload.obstacleId, broadcastIfHost: false);
+                return;
+            }
+
+            _obstacleStates[payload.obstacleId] = payload;
+            var runtime = GetOrCreateObstacleVisual(payload);
+            runtime.SetHp(payload.currentHp, payload.maxHp);
+            runtime.SetTransform(TransformObstaclePositionForDisplay(payload.position), TransformObstacleRotationForDisplay(payload.rotation));
+        }
+
+        private void RemoveObstacleState(int obstacleId, bool broadcastIfHost)
+        {
+            if (_obstacleStates.ContainsKey(obstacleId))
+            {
+                _obstacleStates.Remove(obstacleId);
+            }
+
+            if (_obstacleVisuals.TryGetValue(obstacleId, out var runtime) && runtime != null)
+            {
+                runtime.Dispose();
+            }
+
+            _obstacleVisuals.Remove(obstacleId);
+
+            if (broadcastIfHost && _selectedRole == NetworkRole.Host)
+            {
+                _networkCoordinator?.NotifyHostObstacleState(obstacleId, Vector3.zero, Quaternion.identity, GetWallSize(), 0f, GetWallMaxHp(), false);
+            }
+        }
+
+        private void RefreshObstacleVisuals()
+        {
+            if (_obstacleStates.Count == 0)
+            {
+                return;
+            }
+
+            var ids = new List<int>();
+            ids.AddRange(_obstacleStates.Keys);
+            for (var index = 0; index < ids.Count; index++)
+            {
+                var obstacleId = ids[index];
+                if (!_obstacleStates.TryGetValue(obstacleId, out var payload) || payload == null || !payload.active)
+                {
+                    continue;
+                }
+
+                var runtime = GetOrCreateObstacleVisual(payload);
+                runtime.SetTransform(TransformObstaclePositionForDisplay(payload.position), TransformObstacleRotationForDisplay(payload.rotation));
+                if (Camera.main != null)
+                {
+                    runtime.LookHpBarAt(Camera.main.transform.position);
+                }
+            }
+
+        }
+
+        private WallObstacleRuntime GetOrCreateObstacleVisual(ObstacleStatePayload payload)
+        {
+            if (_obstacleVisuals.TryGetValue(payload.obstacleId, out var runtime) && runtime != null)
+            {
+                return runtime;
+            }
+
+            runtime = new WallObstacleRuntime($"WallObstacle_{payload.obstacleId}", payload.obstacleId, _obstacleVisualRoot, payload.size, isPreview: false);
+            runtime.SetHp(payload.currentHp, payload.maxHp);
+            runtime.SetColliderEnabled(true);
+            _obstacleVisuals[payload.obstacleId] = runtime;
+            return runtime;
+        }
+
+        private void BroadcastObstacleState(ObstacleStatePayload payload)
+        {
+            if (_selectedRole != NetworkRole.Host || payload == null)
+            {
+                return;
+            }
+
+            _networkCoordinator?.NotifyHostObstacleState(
+                payload.obstacleId,
+                payload.position,
+                payload.rotation,
+                payload.size,
+                payload.currentHp,
+                payload.maxHp,
+                payload.active);
+        }
+
+        private void BroadcastAllObstacleStates()
+        {
+            if (_selectedRole != NetworkRole.Host)
+            {
+                return;
+            }
+
+            foreach (var pair in _obstacleStates)
+            {
+                BroadcastObstacleState(pair.Value);
+            }
+        }
+
+        private void ResetObstaclesForNewMatch()
+        {
+            if (_selectedRole == NetworkRole.Host)
+            {
+                var ids = new List<int>();
+                ids.AddRange(_obstacleStates.Keys);
+                for (var index = 0; index < ids.Count; index++)
+                {
+                    var obstacleId = ids[index];
+                    _networkCoordinator?.NotifyHostObstacleState(obstacleId, Vector3.zero, Quaternion.identity, GetWallSize(), 0f, GetWallMaxHp(), false);
+                }
+            }
+
+            ClearObstacleVisuals();
+            _obstacleStates.Clear();
+            CancelSpectatorWallPlacement();
+        }
+
+        private void ClearObstacleVisuals()
+        {
+            foreach (var pair in _obstacleVisuals)
+            {
+                pair.Value?.Dispose();
+            }
+
+            _obstacleVisuals.Clear();
+            CancelSpectatorWallPlacement();
+        }
+
+        private int GetActiveObstacleCount()
+        {
+            var count = 0;
+            foreach (var pair in _obstacleStates)
+            {
+                if (pair.Value != null && pair.Value.active)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private bool TryGetArenaWorldBasis(out Vector3 center, out Vector3 forward, out Vector3 right, out float baseYaw)
+        {
+            center = Vector3.zero;
+            forward = Vector3.forward;
+            right = Vector3.right;
+            baseYaw = 0f;
+
+            if (!TryGetArenaHeadPositionsForAuthority(out var hostHead, out var clientHead))
+            {
+                return false;
+            }
+
+            center = (hostHead + clientHead) * 0.5f;
+            var flatDelta = Vector3.ProjectOnPlane(clientHead - hostHead, Vector3.up);
+            if (flatDelta.sqrMagnitude < 0.0001f)
+            {
+                flatDelta = Vector3.forward;
+            }
+
+            forward = flatDelta.normalized;
+            right = Vector3.Cross(Vector3.up, forward).normalized;
+            baseYaw = Quaternion.LookRotation(forward, Vector3.up).eulerAngles.y;
+            return true;
+        }
+
+        private bool TryGetArenaHeadPositionsForAuthority(out Vector3 hostHead, out Vector3 clientHead)
+        {
+            hostHead = Vector3.zero;
+            clientHead = Vector3.zero;
+            if (_selectedRole != NetworkRole.Host)
+            {
+                return false;
+            }
+
+            if (Camera.main == null)
+            {
+                return false;
+            }
+
+            hostHead = Camera.main.transform.position;
+            if (!TryGetAlignedRemoteHeadPosition(out clientHead))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool TryGetArenaDisplayBasis(out Vector3 center, out Vector3 forward, out Vector3 right, out float baseYaw)
+        {
+            center = Vector3.zero;
+            forward = Vector3.forward;
+            right = Vector3.right;
+            baseYaw = 0f;
+
+            if (_selectedRole != NetworkRole.Spectator ||
+                _spectatorHostProxy == null ||
+                _spectatorClientProxy == null ||
+                _spectatorHostProxy.HeadTransform == null ||
+                _spectatorClientProxy.HeadTransform == null)
+            {
+                return false;
+            }
+
+            var hostHead = _spectatorHostProxy.HeadTransform.position;
+            var clientHead = _spectatorClientProxy.HeadTransform.position;
+            center = (hostHead + clientHead) * 0.5f;
+            var flatDelta = Vector3.ProjectOnPlane(clientHead - hostHead, Vector3.up);
+            if (flatDelta.sqrMagnitude < 0.0001f)
+            {
+                flatDelta = Vector3.forward;
+            }
+
+            forward = flatDelta.normalized;
+            right = Vector3.Cross(Vector3.up, forward).normalized;
+            baseYaw = Quaternion.LookRotation(forward, Vector3.up).eulerAngles.y;
+            return true;
+        }
+
+        private bool TryGetArenaHeadPositionsRaw(out Vector3 hostHead, out Vector3 clientHead)
+        {
+            hostHead = Vector3.zero;
+            clientHead = Vector3.zero;
+            if (_networkCoordinator == null)
+            {
+                return false;
+            }
+
+            if (_selectedRole == NetworkRole.Host)
+            {
+                hostHead = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
+                if (!_networkCoordinator.TryGetRemotePose(NetworkRole.Client, out var clientPose) || clientPose == null)
+                {
+                    return false;
+                }
+
+                clientHead = clientPose.head.position;
+                return true;
+            }
+
+            if (_selectedRole == NetworkRole.Client)
+            {
+                clientHead = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
+                if (!_networkCoordinator.TryGetRemotePose(NetworkRole.Host, out var hostPose) || hostPose == null)
+                {
+                    return false;
+                }
+
+                hostHead = hostPose.head.position;
+                return true;
+            }
+
+            if (_selectedRole == NetworkRole.Spectator)
+            {
+                if (!_networkCoordinator.TryGetRemotePose(NetworkRole.Host, out var hostPose) ||
+                    !_networkCoordinator.TryGetRemotePose(NetworkRole.Client, out var clientPose) ||
+                    hostPose == null ||
+                    clientPose == null)
+                {
+                    return false;
+                }
+
+                hostHead = hostPose.head.position;
+                clientHead = clientPose.head.position;
+                return true;
+            }
+
+            return false;
         }
 
         private int GetMaxHp() => combatBalanceConfig != null ? combatBalanceConfig.hp : 100;
@@ -1777,6 +3024,57 @@ namespace Project.Core
         private float GetShootCooldown() => combatBalanceConfig != null ? combatBalanceConfig.shootCooldown : 1f;
         private float GetShieldDuration() => combatBalanceConfig != null ? combatBalanceConfig.shieldDuration : 1.5f;
         private float GetShieldCooldown() => combatBalanceConfig != null ? combatBalanceConfig.shieldCooldown : 3f;
+        private int GetSpectatorHealAmount() => spectatorSupportConfig != null ? spectatorSupportConfig.healAmount : 10;
+        private float GetSpectatorVoteCooldown() => spectatorSupportConfig != null ? spectatorSupportConfig.voteCooldown : 3f;
+        private string GetSpectatorBarrageWordA() => spectatorSupportConfig != null ? spectatorSupportConfig.barrageWordA : "COOL";
+        private string GetSpectatorBarrageWordB() => spectatorSupportConfig != null ? spectatorSupportConfig.barrageWordB : "GOOD GAME";
+        private string GetSpectatorBarrageWordC() => spectatorSupportConfig != null ? spectatorSupportConfig.barrageWordC : "NICE SHOT";
+        private float GetSpectatorBarrageDuration() => spectatorSupportConfig != null ? spectatorSupportConfig.barrageDuration : 2.4f;
+        private float GetSpectatorBarrageSpeed() => spectatorSupportConfig != null ? spectatorSupportConfig.barrageSpeed : 0.42f;
+        private AudioClip GetSpectatorCheerClip()
+        {
+            if (spectatorSupportConfig != null && spectatorSupportConfig.cheerClip != null)
+            {
+                return spectatorSupportConfig.cheerClip;
+            }
+
+            return Resources.Load<AudioClip>("Audio/yay");
+        }
+
+        private AudioClip GetSpectatorApplauseClip()
+        {
+            if (spectatorSupportConfig != null && spectatorSupportConfig.applauseClip != null)
+            {
+                return spectatorSupportConfig.applauseClip;
+            }
+
+            return Resources.Load<AudioClip>("Audio/cheer");
+        }
+        private float GetSpectatorAudioVolume() => spectatorSupportConfig != null ? spectatorSupportConfig.audioVolume : 0.9f;
+        private int GetWallMaxHp() => spectatorSupportConfig != null ? spectatorSupportConfig.wallMaxHp : 100;
+        private float GetWallDecayPerSecond() => spectatorSupportConfig != null ? spectatorSupportConfig.wallDecayPerSecond : 5f;
+        private int GetWallShotDamage() => spectatorSupportConfig != null ? spectatorSupportConfig.wallShotDamage : 10;
+        private float GetWallPlacementDistance() => spectatorSupportConfig != null ? spectatorSupportConfig.wallPlacementDistance : 1.4f;
+        private float GetWallSpawnCooldown() => spectatorSupportConfig != null ? spectatorSupportConfig.wallSpawnCooldown : 2f;
+        private int GetWallMaxActiveCount() => spectatorSupportConfig != null ? spectatorSupportConfig.wallMaxActiveCount : 2;
+        private Vector3 GetWallSize() => spectatorSupportConfig != null ? spectatorSupportConfig.wallSize : new Vector3(1.6f, 1.35f, 0.12f);
+
+        private static string LoadHostIpPreference(string fallback)
+        {
+            var value = PlayerPrefs.GetString(HostIpPlayerPrefsKey, string.Empty);
+            return SanitizeHostIp(string.IsNullOrWhiteSpace(value) ? fallback : value);
+        }
+
+        private void SaveHostIpPreference()
+        {
+            PlayerPrefs.SetString(HostIpPlayerPrefsKey, SanitizeHostIp(hostIpForClient));
+            PlayerPrefs.Save();
+        }
+
+        private static string SanitizeHostIp(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+        }
 
         private void UpdateEnemyHealthBar()
         {
@@ -1832,6 +3130,33 @@ namespace Project.Core
 
             var myShootCd = Mathf.Max(0f, _localShootCooldownUntil - now);
             _playerHudView.SetStatus(myHp, GetMaxHp(), myShootCd, myShieldCd);
+        }
+
+        private void UpdateSpectatorVoteUi()
+        {
+            if (_spectatorControlView == null)
+            {
+                return;
+            }
+
+            if (_selectedRole != NetworkRole.Spectator || _stateMachine == null || _stateMachine.CurrentId != AppStateId.Playing)
+            {
+                _spectatorControlView.SetVisible(false);
+                return;
+            }
+
+            _spectatorControlView.SetVisible(true);
+            _spectatorControlView.SetBarrageLabels(GetSpectatorBarrageWordA(), GetSpectatorBarrageWordB(), GetSpectatorBarrageWordC());
+            var cooldownRemaining = Mathf.Max(0f, _localSpectatorVoteCooldownUntil - Time.time);
+            var cheerReady = GetSpectatorCheerClip() != null ? "Ready" : "Missing";
+            var applauseReady = GetSpectatorApplauseClip() != null ? "Ready" : "Missing";
+            var wallInfo = _spectatorWallPlacementActive
+                ? "Wall: placement active"
+                : $"Wall: {GetActiveObstacleCount()}/{GetWallMaxActiveCount()} active";
+            _spectatorControlView.SetStatus($"Vote Heal: +{GetSpectatorHealAmount()} HP\nCooldown: {cooldownRemaining:F1}s\nBarrage: local-only\nAudio: Cheer {cheerReady} / Applause {applauseReady}\n{wallInfo}");
+            var interactable = cooldownRemaining <= 0.001f && !_spectatorWallPlacementActive;
+            var canPlaceWall = !_spectatorWallPlacementActive;
+            _spectatorControlView.SetButtonsInteractable(interactable, interactable, !_spectatorWallPlacementActive, !_spectatorWallPlacementActive, canPlaceWall);
         }
 
         private static void OnExitClicked()
@@ -1943,6 +3268,43 @@ namespace Project.Core
             var root = new GameObject("RemoteAlignmentRoot");
             root.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             return root.transform;
+        }
+
+        private static Transform EnsureNamedRootExists(string rootName)
+        {
+            var existing = GameObject.Find(rootName);
+            if (existing != null)
+            {
+                return existing.transform;
+            }
+
+            var root = new GameObject(rootName);
+            root.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            return root.transform;
+        }
+
+        private M3RemotePlayerProxy CreateSpectatorProxy(string proxyName, Transform alignmentRoot)
+        {
+            var existing = transform.Find(proxyName);
+            GameObject proxyGo;
+            if (existing != null)
+            {
+                proxyGo = existing.gameObject;
+            }
+            else
+            {
+                proxyGo = new GameObject(proxyName);
+                proxyGo.transform.SetParent(transform, false);
+            }
+
+            var proxy = proxyGo.GetComponent<M3RemotePlayerProxy>();
+            if (proxy == null)
+            {
+                proxy = proxyGo.AddComponent<M3RemotePlayerProxy>();
+            }
+
+            proxy.BindAlignmentRoot(alignmentRoot);
+            return proxy;
         }
 
         private static GameObject EnsureAprilTagTrackingFrame(float sizeMeters, float lineThicknessMeters)
@@ -2095,3 +3457,4 @@ namespace Project.Core
         }
     }
 }
+

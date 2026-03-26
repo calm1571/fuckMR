@@ -1,7 +1,10 @@
-using System;
+﻿using System;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 校准状态。
+    /// </summary>
     public sealed class CalibrationState : IAppState
     {
         private readonly Action _onEnter;
@@ -33,3 +36,4 @@ namespace Project.Core
         }
     }
 }
+

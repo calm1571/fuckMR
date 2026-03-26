@@ -1,7 +1,10 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Project.Gameplay.Combat
 {
+        /// <summary>
+    /// 护盾可视化组件。
+    /// </summary>
     public sealed class M5ShieldVisual : MonoBehaviour
     {
         [SerializeField] private Color shieldColor = new Color(0.2f, 0.9f, 1f, 0.35f);
@@ -107,3 +110,4 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+

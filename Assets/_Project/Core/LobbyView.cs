@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -7,6 +7,9 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 通用 Lobby 世界空间 UI 视图。
+    /// </summary>
     public sealed class LobbyView
     {
         private readonly GameObject _root;
@@ -16,8 +19,15 @@ namespace Project.Core
         private readonly TMP_Text _statusText;
         private readonly Button _primaryButton;
         private readonly TMP_Text _primaryLabel;
+        private readonly TMP_InputField _inputField;
+        private readonly TMP_Text _inputCaption;
 
         public LobbyView(Transform cameraTransform, string title, string primaryLabel, Action onPrimary, Action onBack, float distance, float verticalOffset)
+            : this(cameraTransform, title, primaryLabel, onPrimary, onBack, distance, verticalOffset, null, string.Empty)
+        {
+        }
+
+        public LobbyView(Transform cameraTransform, string title, string primaryLabel, Action onPrimary, Action onBack, float distance, float verticalOffset, Action<string> onInputChanged, string inputCaption)
         {
             _cameraTransform = cameraTransform;
             _distance = Mathf.Max(1.8f, distance);
@@ -25,7 +35,7 @@ namespace Project.Core
             _root = new GameObject(title.Replace(" ", string.Empty) + "Root");
 
             EnsureEventSystem();
-            BuildCanvas(title, primaryLabel, onPrimary, onBack, out _statusText, out _primaryButton, out _primaryLabel);
+            BuildCanvas(title, primaryLabel, onPrimary, onBack, onInputChanged, inputCaption, out _statusText, out _primaryButton, out _primaryLabel, out _inputField, out _inputCaption);
             SetVisible(false);
         }
 
@@ -72,7 +82,33 @@ namespace Project.Core
             }
         }
 
-        private void BuildCanvas(string title, string primaryLabel, Action onPrimary, Action onBack, out TMP_Text status, out Button primaryButton, out TMP_Text primaryLabelText)
+        public void SetInputVisible(bool visible)
+        {
+            if (_inputField != null)
+            {
+                _inputField.gameObject.SetActive(visible);
+            }
+
+            if (_inputCaption != null)
+            {
+                _inputCaption.gameObject.SetActive(visible);
+            }
+        }
+
+        public void SetInputValue(string value)
+        {
+            if (_inputField != null)
+            {
+                _inputField.text = value ?? string.Empty;
+            }
+        }
+
+        public string GetInputValue()
+        {
+            return _inputField != null ? _inputField.text : string.Empty;
+        }
+
+        private void BuildCanvas(string title, string primaryLabel, Action onPrimary, Action onBack, Action<string> onInputChanged, string inputCaptionText, out TMP_Text status, out Button primaryButton, out TMP_Text primaryLabelText, out TMP_InputField inputField, out TMP_Text inputCaption)
         {
             var canvasGo = new GameObject(
                 title.Replace(" ", string.Empty) + "Canvas",
@@ -98,10 +134,20 @@ namespace Project.Core
             var panel = CreateImage("Panel", canvasRect, Vector2.zero, new Vector2(940f, 720f), new Color(0.08f, 0.11f, 0.15f, 0.78f));
             CreateTitle(panel, title);
             status = CreateBody(panel, "Waiting...");
-            var primary = CreateButton(panel, primaryLabel, new Vector2(0f, -120f), onPrimary);
+            inputCaption = null;
+            inputField = null;
+            if (onInputChanged != null)
+            {
+                inputCaption = CreateSmallLabel(panel, string.IsNullOrWhiteSpace(inputCaptionText) ? "Host IP" : inputCaptionText, new Vector2(0f, -60f));
+                inputField = CreateInputField(panel, new Vector2(0f, -150f), onInputChanged);
+            }
+
+            var primaryY = onInputChanged != null ? -270f : -120f;
+            var backY = onInputChanged != null ? -430f : -280f;
+            var primary = CreateButton(panel, primaryLabel, new Vector2(0f, primaryY), onPrimary);
             primaryButton = primary.button;
             primaryLabelText = primary.label;
-            CreateButton(panel, "Back", new Vector2(0f, -280f), onBack);
+            CreateButton(panel, "Back", new Vector2(0f, backY), onBack);
         }
 
         private static RectTransform CreateImage(string name, RectTransform parent, Vector2 anchoredPos, Vector2 size, Color color)
@@ -168,6 +214,93 @@ namespace Project.Core
             label.color = new Color(0.9f, 0.95f, 1f, 1f);
             label.alignment = TextAlignmentOptions.Center;
             return label;
+        }
+
+        private static TMP_Text CreateSmallLabel(RectTransform parent, string text, Vector2 anchoredPos)
+        {
+            var go = new GameObject("InputCaption", typeof(RectTransform), typeof(TextMeshProUGUI));
+            go.transform.SetParent(parent, false);
+            var rect = go.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = anchoredPos;
+            rect.sizeDelta = new Vector2(760f, 54f);
+
+            var label = go.GetComponent<TextMeshProUGUI>();
+            var font = GetSafeFontAsset();
+            if (font != null)
+            {
+                label.font = font;
+            }
+
+            label.text = text;
+            label.fontSize = 30f;
+            label.alignment = TextAlignmentOptions.Center;
+            label.color = new Color(0.78f, 0.88f, 0.96f, 1f);
+            return label;
+        }
+
+        private static TMP_InputField CreateInputField(RectTransform parent, Vector2 anchoredPos, Action<string> onValueChanged)
+        {
+            var fieldRect = CreateImage("InputField", parent, anchoredPos, new Vector2(760f, 92f), new Color(0.05f, 0.08f, 0.11f, 0.92f));
+            var input = fieldRect.gameObject.AddComponent<TMP_InputField>();
+
+            var textViewport = new GameObject("Text Area", typeof(RectTransform), typeof(RectMask2D));
+            textViewport.transform.SetParent(fieldRect, false);
+            var viewportRect = textViewport.GetComponent<RectTransform>();
+            viewportRect.anchorMin = Vector2.zero;
+            viewportRect.anchorMax = Vector2.one;
+            viewportRect.offsetMin = new Vector2(28f, 12f);
+            viewportRect.offsetMax = new Vector2(-28f, -12f);
+
+            var textGo = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
+            textGo.transform.SetParent(textViewport.transform, false);
+            var textRect = textGo.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = Vector2.zero;
+            textRect.offsetMax = Vector2.zero;
+            var text = textGo.GetComponent<TextMeshProUGUI>();
+            var font = GetSafeFontAsset();
+            if (font != null)
+            {
+                text.font = font;
+            }
+
+            text.fontSize = 40f;
+            text.enableAutoSizing = true;
+            text.fontSizeMin = 26f;
+            text.fontSizeMax = 40f;
+            text.color = Color.white;
+            text.alignment = TextAlignmentOptions.Left;
+
+            var placeholderGo = new GameObject("Placeholder", typeof(RectTransform), typeof(TextMeshProUGUI));
+            placeholderGo.transform.SetParent(textViewport.transform, false);
+            var placeholderRect = placeholderGo.GetComponent<RectTransform>();
+            placeholderRect.anchorMin = Vector2.zero;
+            placeholderRect.anchorMax = Vector2.one;
+            placeholderRect.offsetMin = Vector2.zero;
+            placeholderRect.offsetMax = Vector2.zero;
+            var placeholder = placeholderGo.GetComponent<TextMeshProUGUI>();
+            if (font != null)
+            {
+                placeholder.font = font;
+            }
+
+            placeholder.text = "Enter Host IP";
+            placeholder.fontSize = 36f;
+            placeholder.color = new Color(1f, 1f, 1f, 0.35f);
+            placeholder.alignment = TextAlignmentOptions.Left;
+
+            input.textViewport = viewportRect;
+            input.textComponent = text;
+            input.placeholder = placeholder;
+            input.lineType = TMP_InputField.LineType.SingleLine;
+            input.contentType = TMP_InputField.ContentType.Standard;
+            input.characterValidation = TMP_InputField.CharacterValidation.None;
+            input.onValueChanged.AddListener(value => onValueChanged?.Invoke(value));
+            return input;
         }
 
         private static (Button button, TMP_Text label) CreateButton(RectTransform parent, string text, Vector2 anchoredPos, Action onClick)
@@ -252,3 +385,4 @@ namespace Project.Core
         }
     }
 }
+

@@ -1,8 +1,11 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.XR;
 
 namespace Project.MRWorld
 {
+        /// <summary>
+    /// 管理可移动的 WorldRoot 根节点。
+    /// </summary>
     public sealed class WorldRootController
     {
         private readonly Transform _worldRoot;
@@ -139,3 +142,4 @@ namespace Project.MRWorld
         }
     }
 }
+

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -7,6 +7,9 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 校准阶段使用的世界空间 UI。
+    /// </summary>
     public sealed class CalibrationView
     {
         private readonly GameObject _root;
@@ -308,3 +311,4 @@ namespace Project.Core
         }
     }
 }
+

@@ -1,8 +1,11 @@
-using Project.Networking;
+﻿using Project.Networking;
 using UnityEngine;
 
 namespace Project.Gameplay.Combat
 {
+        /// <summary>
+    /// 远端玩家视觉代理，包含头、手、标识与血条。
+    /// </summary>
     public sealed class M3RemotePlayerProxy : MonoBehaviour
     {
         private Transform _alignmentRoot;
@@ -75,6 +78,11 @@ namespace Project.Gameplay.Combat
             var scaleX = Mathf.Max(0f, _lastHealth01);
             _hpBarForeground.localScale = new Vector3(scaleX, 1f, 1f);
             _hpBarForeground.localPosition = new Vector3((scaleX - 1f) * 0.5f, 0f, HpBarFrontOffsetLocal);
+        }
+
+        public void Hide()
+        {
+            SetVisible(false);
         }
 
         private void EnsureProxyObjects()
@@ -387,3 +395,4 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+

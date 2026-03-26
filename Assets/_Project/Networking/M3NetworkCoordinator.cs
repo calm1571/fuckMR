@@ -1,12 +1,19 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Sockets;
 using UnityEngine;
 
 namespace Project.Networking
 {
+        /// <summary>
+    /// 网络高层协调器，负责在运行时收发消息并向上层暴露事件。
+    /// </summary>
     public sealed class M3NetworkCoordinator
     {
         private readonly UdpLanTransport _transport = new UdpLanTransport();
         private readonly string _localPlayerId = Guid.NewGuid().ToString("N");
+        private readonly Dictionary<NetworkRole, PosePayload> _remotePosesByRole = new Dictionary<NetworkRole, PosePayload>();
 
         private readonly int _port;
         private readonly string _defaultHostIp;
@@ -26,6 +33,11 @@ namespace Project.Networking
         private bool _remoteCalibrationReadyRequested;
         private bool _remoteAlignmentRequested;
         private bool _remoteRematchReadyRequested;
+        private bool _remoteSpectatorVoteRequested;
+        private bool _remoteObstacleSpawnRequestRequested;
+        private bool _remoteObstacleStateRequested;
+        private NetworkRole _pendingShootSenderRole;
+        private NetworkRole _pendingShieldSenderRole;
         private WorldRootSyncPayload _pendingWorldRootSync;
         private ShootPayload _pendingShoot;
         private ShieldPayload _pendingShield;
@@ -35,6 +47,9 @@ namespace Project.Networking
         private CalibrationReadyPayload _pendingCalibrationReady;
         private RemoteAlignmentPayload _pendingRemoteAlignment;
         private RematchReadyPayload _pendingRematchReady;
+        private SpectatorVotePayload _pendingSpectatorVote;
+        private ObstacleSpawnRequestPayload _pendingObstacleSpawnRequest;
+        private ObstacleStatePayload _pendingObstacleState;
 
         private Transform _head;
         private Transform _leftHand;
@@ -43,7 +58,9 @@ namespace Project.Networking
         public event Action RemoteCalibrationRequested;
         public event Action<WorldRootSyncPayload> WorldRootSyncReceived;
         public event Action<ShootPayload> RemoteShootReceived;
+        public event Action<NetworkRole, ShootPayload> RoleShootReceived;
         public event Action<ShieldPayload> RemoteShieldReceived;
+        public event Action<NetworkRole, ShieldPayload> RoleShieldReceived;
         public event Action<HpUpdatePayload> HpUpdateReceived;
         public event Action<MatchResultPayload> MatchResultReceived;
         public event Action<SharedAnchorPayload> SharedAnchorReceived;
@@ -51,11 +68,20 @@ namespace Project.Networking
         public event Action<CalibrationReadyPayload> RemoteCalibrationReadyReceived;
         public event Action<RemoteAlignmentPayload> RemoteAlignmentReceived;
         public event Action<RematchReadyPayload> RemoteRematchReadyReceived;
+        public event Action<SpectatorVotePayload> SpectatorVoteReceived;
+        public event Action<ObstacleSpawnRequestPayload> ObstacleSpawnRequestReceived;
+        public event Action<ObstacleStatePayload> ObstacleStateReceived;
 
         public NetworkRole Role { get; private set; } = NetworkRole.None;
         public bool IsConnected => _transport.IsConnected;
         public bool HasRemotePose => _hasRemotePose;
         public PosePayload LatestRemotePose => _latestRemotePose;
+        public bool HasClientPeer => _transport.HasPeer(NetworkRole.Client);
+        public bool HasSpectatorPeer => _transport.HasPeer(NetworkRole.Spectator);
+        public int SpectatorCount => _transport.GetPeerCount(NetworkRole.Spectator);
+        public string LastNetworkDiagnostic => _transport.LastDiagnostic;
+        public string DefaultHostIp => _defaultHostIp;
+        public int Port => _port;
 
         public M3NetworkCoordinator(int port, string defaultHostIp, float poseSendRate)
         {
@@ -77,81 +103,28 @@ namespace Project.Networking
         {
             Role = NetworkRole.Host;
             _transport.StartHost(_port, _localPlayerId);
-            _hasRemotePose = false;
-            _remoteCalibrationRequested = false;
-            _remoteWorldRootSyncRequested = false;
-            _pendingWorldRootSync = null;
-            _remoteShootRequested = false;
-            _pendingShoot = null;
-            _remoteShieldRequested = false;
-            _pendingShield = null;
-            _remoteHpUpdateRequested = false;
-            _pendingHpUpdate = null;
-            _remoteMatchResultRequested = false;
-            _pendingMatchResult = null;
-            _remoteSharedAnchorRequested = false;
-            _pendingSharedAnchor = null;
-            _remoteStartPlayingRequested = false;
-            _remoteCalibrationReadyRequested = false;
-            _pendingCalibrationReady = null;
-            _remoteAlignmentRequested = false;
-            _pendingRemoteAlignment = null;
-            _remoteRematchReadyRequested = false;
-            _pendingRematchReady = null;
+            ResetRuntimeState();
         }
 
         public void StartClient(string hostIp = null)
         {
             Role = NetworkRole.Client;
             _transport.StartClient(_port, _localPlayerId, string.IsNullOrEmpty(hostIp) ? _defaultHostIp : hostIp);
-            _hasRemotePose = false;
-            _remoteCalibrationRequested = false;
-            _remoteWorldRootSyncRequested = false;
-            _pendingWorldRootSync = null;
-            _remoteShootRequested = false;
-            _pendingShoot = null;
-            _remoteShieldRequested = false;
-            _pendingShield = null;
-            _remoteHpUpdateRequested = false;
-            _pendingHpUpdate = null;
-            _remoteMatchResultRequested = false;
-            _pendingMatchResult = null;
-            _remoteSharedAnchorRequested = false;
-            _pendingSharedAnchor = null;
-            _remoteStartPlayingRequested = false;
-            _remoteCalibrationReadyRequested = false;
-            _pendingCalibrationReady = null;
-            _remoteAlignmentRequested = false;
-            _pendingRemoteAlignment = null;
-            _remoteRematchReadyRequested = false;
-            _pendingRematchReady = null;
+            ResetRuntimeState();
+        }
+
+        public void StartSpectator(string hostIp = null)
+        {
+            Role = NetworkRole.Spectator;
+            _transport.StartSpectator(_port, _localPlayerId, string.IsNullOrEmpty(hostIp) ? _defaultHostIp : hostIp);
+            ResetRuntimeState();
         }
 
         public void Stop()
         {
             Role = NetworkRole.None;
             _transport.Stop();
-            _hasRemotePose = false;
-            _remoteCalibrationRequested = false;
-            _remoteWorldRootSyncRequested = false;
-            _pendingWorldRootSync = null;
-            _remoteShootRequested = false;
-            _pendingShoot = null;
-            _remoteShieldRequested = false;
-            _pendingShield = null;
-            _remoteHpUpdateRequested = false;
-            _pendingHpUpdate = null;
-            _remoteMatchResultRequested = false;
-            _pendingMatchResult = null;
-            _remoteSharedAnchorRequested = false;
-            _pendingSharedAnchor = null;
-            _remoteStartPlayingRequested = false;
-            _remoteCalibrationReadyRequested = false;
-            _pendingCalibrationReady = null;
-            _remoteAlignmentRequested = false;
-            _pendingRemoteAlignment = null;
-            _remoteRematchReadyRequested = false;
-            _pendingRematchReady = null;
+            ResetRuntimeState();
         }
 
         public void Tick(float unscaledTime)
@@ -178,7 +151,11 @@ namespace Project.Networking
                 _remoteShootRequested = false;
                 if (_pendingShoot != null)
                 {
-                    RemoteShootReceived?.Invoke(_pendingShoot);
+                    RoleShootReceived?.Invoke(_pendingShootSenderRole, _pendingShoot);
+                    if (IsCounterpartPlayerRole(_pendingShootSenderRole))
+                    {
+                        RemoteShootReceived?.Invoke(_pendingShoot);
+                    }
                 }
             }
 
@@ -187,7 +164,11 @@ namespace Project.Networking
                 _remoteShieldRequested = false;
                 if (_pendingShield != null)
                 {
-                    RemoteShieldReceived?.Invoke(_pendingShield);
+                    RoleShieldReceived?.Invoke(_pendingShieldSenderRole, _pendingShield);
+                    if (IsCounterpartPlayerRole(_pendingShieldSenderRole))
+                    {
+                        RemoteShieldReceived?.Invoke(_pendingShield);
+                    }
                 }
             }
 
@@ -251,7 +232,34 @@ namespace Project.Networking
                 }
             }
 
-            if (!IsConnected || _head == null)
+            if (_remoteSpectatorVoteRequested)
+            {
+                _remoteSpectatorVoteRequested = false;
+                if (_pendingSpectatorVote != null)
+                {
+                    SpectatorVoteReceived?.Invoke(_pendingSpectatorVote);
+                }
+            }
+
+            if (_remoteObstacleSpawnRequestRequested)
+            {
+                _remoteObstacleSpawnRequestRequested = false;
+                if (_pendingObstacleSpawnRequest != null)
+                {
+                    ObstacleSpawnRequestReceived?.Invoke(_pendingObstacleSpawnRequest);
+                }
+            }
+
+            if (_remoteObstacleStateRequested)
+            {
+                _remoteObstacleStateRequested = false;
+                if (_pendingObstacleState != null)
+                {
+                    ObstacleStateReceived?.Invoke(_pendingObstacleState);
+                }
+            }
+
+            if (!IsConnected || _head == null || Role == NetworkRole.Spectator)
             {
                 return;
             }
@@ -263,6 +271,16 @@ namespace Project.Networking
 
             _nextPoseTime = unscaledTime + _poseSendInterval;
             _transport.SendPose(CaptureLocalPose());
+        }
+
+        public bool TryGetRemotePose(NetworkRole role, out PosePayload payload)
+        {
+            return _remotePosesByRole.TryGetValue(role, out payload) && payload != null;
+        }
+
+        public bool HasRemotePoseForRole(NetworkRole role)
+        {
+            return _remotePosesByRole.ContainsKey(role) && _remotePosesByRole[role] != null;
         }
 
         public void NotifyHostStartCalibration()
@@ -290,7 +308,7 @@ namespace Project.Networking
 
         public void NotifyShoot(Vector3 spawnPosition, Vector3 direction, float speed, float maxDistance, float lifetime)
         {
-            if (Role == NetworkRole.None || !_transport.IsConnected)
+            if (Role == NetworkRole.None || !_transport.IsConnected || Role == NetworkRole.Spectator)
             {
                 return;
             }
@@ -308,7 +326,7 @@ namespace Project.Networking
 
         public void NotifyShield(bool active, float duration)
         {
-            if (Role == NetworkRole.None || !_transport.IsConnected)
+            if (Role == NetworkRole.None || !_transport.IsConnected || Role == NetworkRole.Spectator)
             {
                 return;
             }
@@ -376,7 +394,7 @@ namespace Project.Networking
 
         public void NotifyCalibrationReady(bool ready, bool hasPose, bool isLocked, float stability01)
         {
-            if (Role == NetworkRole.None || !_transport.IsConnected)
+            if (Role == NetworkRole.None || !_transport.IsConnected || Role == NetworkRole.Spectator)
             {
                 return;
             }
@@ -394,6 +412,7 @@ namespace Project.Networking
 
         public void NotifyRemoteAlignment(Vector3 position, Quaternion rotation, bool confirmed, string stage)
         {
+            // 分步校准确认和偏移同步统一走这条消息，三种角色都允许发送。
             if (Role == NetworkRole.None || !_transport.IsConnected)
             {
                 return;
@@ -413,7 +432,7 @@ namespace Project.Networking
 
         public void NotifyRematchReady(bool ready)
         {
-            if (Role == NetworkRole.None || !_transport.IsConnected)
+            if (Role == NetworkRole.None || !_transport.IsConnected || Role == NetworkRole.Spectator)
             {
                 return;
             }
@@ -426,30 +445,127 @@ namespace Project.Networking
             _transport.SendRematchReady(payload);
         }
 
+        public void NotifySpectatorVote(string targetRole)
+        {
+            if (Role != NetworkRole.Spectator || !_transport.IsConnected || string.IsNullOrEmpty(targetRole))
+            {
+                return;
+            }
+
+            var payload = new SpectatorVotePayload
+            {
+                targetRole = targetRole
+            };
+
+            _transport.SendSpectatorVote(payload);
+        }
+
+        public void NotifyObstacleSpawnRequest(string anchorType, Vector3 localOffset, float yawOffset)
+        {
+            if (Role != NetworkRole.Spectator || !_transport.IsConnected || string.IsNullOrEmpty(anchorType))
+            {
+                return;
+            }
+
+            var payload = new ObstacleSpawnRequestPayload
+            {
+                anchorType = anchorType,
+                localOffset = localOffset,
+                yawOffset = yawOffset
+            };
+
+            _transport.SendObstacleSpawnRequest(payload);
+        }
+
+        public void NotifyHostObstacleState(int obstacleId, Vector3 position, Quaternion rotation, Vector3 size, float currentHp, float maxHp, bool active)
+        {
+            if (Role != NetworkRole.Host || !_transport.IsConnected)
+            {
+                return;
+            }
+
+            var payload = new ObstacleStatePayload
+            {
+                obstacleId = obstacleId,
+                position = position,
+                rotation = rotation,
+                size = size,
+                currentHp = currentHp,
+                maxHp = maxHp,
+                active = active
+            };
+
+            _transport.SendObstacleState(payload);
+        }
+
         public string BuildLobbyStatus()
         {
             if (Role == NetworkRole.Host)
             {
-                return IsConnected ? "Client Connected" : "Waiting for client...";
+                var clientState = HasClientPeer ? "Client Connected" : "Waiting for client...";
+                var spectatorState = HasSpectatorPeer ? $"Spectator Connected ({SpectatorCount})" : "Waiting for spectator...";
+                return $"{clientState}\n{spectatorState}\nLocal IP: {GetLocalIpv4Address()}\nUDP: {_port}\nDiag: {LastNetworkDiagnostic}";
             }
 
             if (Role == NetworkRole.Client)
             {
-                return IsConnected ? "Connected to host" : $"Connecting to {_defaultHostIp}:{_port} ...";
+                return (IsConnected ? "Connected to host" : $"Connecting to {_defaultHostIp}:{_port} ...") +
+                       $"\nTarget Host IP: {_defaultHostIp}\nUDP: {_port}\nDiag: {LastNetworkDiagnostic}";
+            }
+
+            if (Role == NetworkRole.Spectator)
+            {
+                return (IsConnected ? "Connected to host as spectator" : $"Connecting to {_defaultHostIp}:{_port} ...") +
+                       $"\nTarget Host IP: {_defaultHostIp}\nUDP: {_port}\nDiag: {LastNetworkDiagnostic}";
             }
 
             return "Network idle";
         }
 
+        private void ResetRuntimeState()
+        {
+            _hasRemotePose = false;
+            _latestRemotePose = null;
+            _remotePosesByRole.Clear();
+            _remoteCalibrationRequested = false;
+            _remoteWorldRootSyncRequested = false;
+            _pendingWorldRootSync = null;
+            _remoteShootRequested = false;
+            _pendingShoot = null;
+            _pendingShootSenderRole = NetworkRole.None;
+            _remoteShieldRequested = false;
+            _pendingShield = null;
+            _pendingShieldSenderRole = NetworkRole.None;
+            _remoteHpUpdateRequested = false;
+            _pendingHpUpdate = null;
+            _remoteMatchResultRequested = false;
+            _pendingMatchResult = null;
+            _remoteSharedAnchorRequested = false;
+            _pendingSharedAnchor = null;
+            _remoteStartPlayingRequested = false;
+            _remoteCalibrationReadyRequested = false;
+            _pendingCalibrationReady = null;
+            _remoteAlignmentRequested = false;
+            _pendingRemoteAlignment = null;
+            _remoteRematchReadyRequested = false;
+            _pendingRematchReady = null;
+            _remoteSpectatorVoteRequested = false;
+            _pendingSpectatorVote = null;
+            _remoteObstacleSpawnRequestRequested = false;
+            _pendingObstacleSpawnRequest = null;
+            _remoteObstacleStateRequested = false;
+            _pendingObstacleState = null;
+            _nextPoseTime = 0f;
+        }
+
         private PosePayload CaptureLocalPose()
         {
-            var payload = new PosePayload
+            return new PosePayload
             {
                 head = BuildPose(_head),
                 leftHand = BuildPose(_leftHand),
                 rightHand = BuildPose(_rightHand)
             };
-            return payload;
         }
 
         private static PoseData BuildPose(Transform source)
@@ -466,6 +582,7 @@ namespace Project.Networking
 
         private void OnMessageReceived(LanMessage message)
         {
+            // 所有网络消息都在这里做一次解析，再转成上层可消费的挂起事件。
             if (message == null || string.IsNullOrEmpty(message.type))
             {
                 return;
@@ -476,12 +593,21 @@ namespace Project.Networking
                 return;
             }
 
+            var senderRole = ParseRole(message.senderRole);
             if (message.type == LanMessageTypes.Pose && !string.IsNullOrEmpty(message.payload))
             {
                 try
                 {
-                    _latestRemotePose = JsonUtility.FromJson<PosePayload>(message.payload);
-                    _hasRemotePose = true;
+                    var pose = JsonUtility.FromJson<PosePayload>(message.payload);
+                    if (pose != null && senderRole != NetworkRole.None)
+                    {
+                        _remotePosesByRole[senderRole] = pose;
+                        if (IsCounterpartPlayerRole(senderRole))
+                        {
+                            _latestRemotePose = pose;
+                            _hasRemotePose = true;
+                        }
+                    }
                 }
                 catch
                 {
@@ -489,19 +615,16 @@ namespace Project.Networking
             }
             else if (message.type == LanMessageTypes.StartCalibration && Role == NetworkRole.Client)
             {
-                Debug.Log("M4 Net: Client received START_CALIBRATION");
                 _remoteCalibrationRequested = true;
             }
-            else if (message.type == LanMessageTypes.WorldRootSync && Role == NetworkRole.Client && !string.IsNullOrEmpty(message.payload))
+            else if (message.type == LanMessageTypes.WorldRootSync &&
+                     (Role == NetworkRole.Client || Role == NetworkRole.Spectator) &&
+                     !string.IsNullOrEmpty(message.payload))
             {
                 try
                 {
                     _pendingWorldRootSync = JsonUtility.FromJson<WorldRootSyncPayload>(message.payload);
                     _remoteWorldRootSyncRequested = _pendingWorldRootSync != null;
-                    if (_remoteWorldRootSyncRequested)
-                    {
-                        Debug.Log("M4 Net: Client received WORLD_ROOT_SYNC");
-                    }
                 }
                 catch
                 {
@@ -512,6 +635,7 @@ namespace Project.Networking
                 try
                 {
                     _pendingShoot = JsonUtility.FromJson<ShootPayload>(message.payload);
+                    _pendingShootSenderRole = senderRole;
                     _remoteShootRequested = _pendingShoot != null;
                 }
                 catch
@@ -523,6 +647,7 @@ namespace Project.Networking
                 try
                 {
                     _pendingShield = JsonUtility.FromJson<ShieldPayload>(message.payload);
+                    _pendingShieldSenderRole = senderRole;
                     _remoteShieldRequested = _pendingShield != null;
                 }
                 catch
@@ -562,7 +687,7 @@ namespace Project.Networking
                 {
                 }
             }
-            else if (message.type == LanMessageTypes.StartPlaying && Role == NetworkRole.Client)
+            else if (message.type == LanMessageTypes.StartPlaying && Role != NetworkRole.Host)
             {
                 _remoteStartPlayingRequested = true;
             }
@@ -599,6 +724,89 @@ namespace Project.Networking
                 {
                 }
             }
+            else if (message.type == LanMessageTypes.SpectatorVote &&
+                     Role == NetworkRole.Host &&
+                     senderRole == NetworkRole.Spectator &&
+                     !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingSpectatorVote = JsonUtility.FromJson<SpectatorVotePayload>(message.payload);
+                    _remoteSpectatorVoteRequested = _pendingSpectatorVote != null && !string.IsNullOrEmpty(_pendingSpectatorVote.targetRole);
+                }
+                catch
+                {
+                }
+            }
+            else if (message.type == LanMessageTypes.ObstacleSpawnRequest &&
+                     Role == NetworkRole.Host &&
+                     senderRole == NetworkRole.Spectator &&
+                     !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingObstacleSpawnRequest = JsonUtility.FromJson<ObstacleSpawnRequestPayload>(message.payload);
+                    _remoteObstacleSpawnRequestRequested = _pendingObstacleSpawnRequest != null && !string.IsNullOrEmpty(_pendingObstacleSpawnRequest.anchorType);
+                }
+                catch
+                {
+                }
+            }
+            else if (message.type == LanMessageTypes.ObstacleState &&
+                     Role != NetworkRole.Host &&
+                     !string.IsNullOrEmpty(message.payload))
+            {
+                try
+                {
+                    _pendingObstacleState = JsonUtility.FromJson<ObstacleStatePayload>(message.payload);
+                    _remoteObstacleStateRequested = _pendingObstacleState != null;
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private bool IsCounterpartPlayerRole(NetworkRole senderRole)
+        {
+            if (Role == NetworkRole.Host)
+            {
+                return senderRole == NetworkRole.Client;
+            }
+
+            if (Role == NetworkRole.Client)
+            {
+                return senderRole == NetworkRole.Host;
+            }
+
+            return senderRole == NetworkRole.Host || senderRole == NetworkRole.Client;
+        }
+
+        private static NetworkRole ParseRole(string value)
+        {
+            return Enum.TryParse(value, true, out NetworkRole parsed) ? parsed : NetworkRole.None;
+        }
+
+        private static string GetLocalIpv4Address()
+        {
+            try
+            {
+                var host = Dns.GetHostEntry(Dns.GetHostName());
+                for (var i = 0; i < host.AddressList.Length; i++)
+                {
+                    var address = host.AddressList[i];
+                    if (address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(address))
+                    {
+                        return address.ToString();
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return "Unknown";
         }
     }
 }
+

@@ -1,9 +1,12 @@
-using TMPro;
+﻿using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace Project.Core
 {
+        /// <summary>
+    /// 玩家本地 HUD，显示血量与冷却。
+    /// </summary>
     public sealed class M5PlayerHudView
     {
         private readonly GameObject _root;
@@ -164,3 +167,4 @@ namespace Project.Core
         }
     }
 }
+

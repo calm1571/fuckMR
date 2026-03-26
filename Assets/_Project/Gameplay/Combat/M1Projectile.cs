@@ -1,7 +1,10 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Project.Gameplay.Combat
 {
+        /// <summary>
+    /// 子弹移动体，负责生命周期与本地墙碰撞销毁。
+    /// </summary>
     public sealed class M1Projectile : MonoBehaviour
     {
         private Vector3 _startPosition;
@@ -51,6 +54,28 @@ namespace Project.Gameplay.Combat
             }
         }
 
+        private void OnCollisionEnter(Collision collision)
+        {
+            // 视觉子弹打到墙时立即在本地销毁，避免出现穿墙显示。
+            if (collision == null)
+            {
+                return;
+            }
+
+            if (IsWallObstacleCollision(collision.collider))
+            {
+                Destroy(gameObject);
+            }
+        }
+
+        private void OnTriggerEnter(Collider other)
+        {
+            if (IsWallObstacleCollision(other))
+            {
+                Destroy(gameObject);
+            }
+        }
+
         private void EnsureRigidbody()
         {
             _rb = GetComponent<Rigidbody>();
@@ -64,5 +89,17 @@ namespace Project.Gameplay.Combat
             _rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             _rb.interpolation = RigidbodyInterpolation.Interpolate;
         }
+
+        private static bool IsWallObstacleCollision(Collider collider)
+        {
+            if (collider == null)
+            {
+                return false;
+            }
+
+            return collider.GetComponent<WallObstacleColliderTag>() != null ||
+                   collider.GetComponentInParent<WallObstacleColliderTag>() != null;
+        }
     }
 }
+

@@ -1,10 +1,13 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Unity.XR.PXR;
 using UnityEngine;
 
 namespace Project.MRWorld
 {
+        /// <summary>
+    /// PICO Spatial Anchor 同步能力封装。
+    /// </summary>
     public sealed class SpatialAnchorSyncService
     {
         private const string LastSharedAnchorUuidKey = "project.last_shared_anchor_uuid";
@@ -167,3 +170,4 @@ namespace Project.MRWorld
         }
     }
 }
+
