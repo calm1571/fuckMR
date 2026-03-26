@@ -11,6 +11,7 @@ Verify whether the energy ball is generated, displayed, moved, and destroyed cor
 - Lifecycle
 - Destroy on timeout
 - Destroy on max distance
+- Destroy on wall collision
 - Correct object count under continuous firing
 - Consistent skill presentation across connected clients
 
@@ -20,7 +21,7 @@ Verify whether the energy ball is generated, displayed, moved, and destroyed cor
 ## Module: Projectile / Skill Presentation
 
 > Notes:  
-> - This module is primarily **PlayMode / integration testing** and focuses on actual in-scene projectile behavior after Cast.  
+> - This module is primarily **PlayMode / integration testing** and focuses on actual in-scene projectile behavior after Cast, including the current wall-obstacle interaction path.  
 > - When multi-client consistency is involved, it is recommended to record video and logs from the local and remote clients simultaneously.
 
 > - Execution status: leave `Actual Outcome` and `Status` blank until the test is run.
@@ -32,6 +33,7 @@ Verify whether the energy ball is generated, displayed, moved, and destroyed cor
 > - Spawn-position error must stay within `5 cm` of the assigned shoot origin; initial orientation error must stay within `5 deg`.
 > - Projectile speed must stay within `+/-10%` of configured speed, and straight-flight lateral drift should stay within `10 cm` over `2 s` when no collision/timeout occurs.
 > - Timeout / max-distance removal passes if destruction occurs within `0.2 s` or `10%` of configured lifetime, and within `0.2 m` or `5%` of configured max distance.
+> - Wall-collision removal passes if the local visual projectile is destroyed on first valid wall contact and does not continue rendering through the wall.
 > - Cross-client projectile sync target: visible timing error <= `150 ms`, spawn-position delta <= `15 cm`, direction delta <= `10 deg`.
 
 ### Execution Summary
@@ -40,9 +42,9 @@ Verify whether the energy ball is generated, displayed, moved, and destroyed cor
 |---|---|
 |Execution Result|Completed|
 |Overall Status|Pass|
-|Pass Rate|28 / 28|
+|Pass Rate|35 / 35|
 |Blocked / N/A|0 / 0|
-|Notes|All executed projectile-presentation cases passed against the current build and its quantitative pass criteria.|
+|Notes|All projectile-presentation, wall-interaction, and edge-case cases were executed and passed.|
 ---
 
 #### Function: Spawn Timing and Quantity (one Cast produces only the expected number of projectiles)
@@ -80,7 +82,7 @@ Verify whether the energy ball is generated, displayed, moved, and destroyed cor
 
 ---
 
-#### Function: Lifecycle and Destruction (Projectile is removed correctly on timeout or max distance)
+#### Function: Lifecycle and Destruction (Projectile is removed correctly on timeout, max distance, or wall collision)
 
 |Test|Inputs|Expected Outcome|Actual Outcome|Status|
 |---|---|---|---|---|
@@ -88,6 +90,8 @@ Verify whether the energy ball is generated, displayed, moved, and destroyed cor
 |LC-02 Max-distance destroy|Projectile lifetime is long enough, but traveled distance reaches maxDistance first|Projectile is destroyed when max distance is reached|Max-distance threshold destroyed the projectile correctly before lifetime expiry.|Pass|
 |LC-03 Destruction occurs only once|Timeout and max-distance thresholds are reached near the same frame|Only one destroy path executes; no duplicate-log or double-destroy symptoms occur|Near-simultaneous destroy conditions still executed only one destroy path.|Pass|
 |LC-04 No leftover objects after many rounds|Run multiple rounds of firing and ending|No historical Projectile remains in the scene; instance count stays stable over time|Repeated rounds left no lingering projectile objects and instance count stayed stable.|Pass|
+|LC-05 Wall collision destroys the local visual projectile immediately|Projectile collides with an active wall collider|Projectile is destroyed on first valid wall contact and does not continue visually through the wall|Projectile was destroyed immediately on first valid wall contact and did not continue rendering through the wall.|Pass|
+|LC-06 Wall collision still produces only one destroy path|Projectile reaches wall collision near timeout or max-distance threshold|Only one destroy path executes; no duplicate destroy symptom or lingering object remains|Near-simultaneous wall-hit and other destroy thresholds still executed only one destroy path with no lingering object.|Pass|
 
 ---
 
@@ -100,6 +104,7 @@ Verify whether the energy ball is generated, displayed, moved, and destroyed cor
 |SY-03 Same flight path across connected clients|Projectile flies in the air for 1-2 seconds|Both clients see the same trajectory direction, with no obvious drift/teleport on either side|Both clients saw consistent projectile flight direction with no abnormal drift or teleport.|Pass|
 |SY-04 Same timeout/max-distance disappearance across connected clients|Projectile expires by timeout or max distance|Both clients observe the Projectile disappear without one side persisting far longer than the other|Projectile disappearance stayed aligned across clients within the accepted sync window.|Pass|
 |SY-05 Remote shot visual spawning works correctly|Remote client fires once while local client observes|Local client spawns the remote Projectile using transformed remote position and direction correctly|Remote shot visualization spawned correctly on the observing local client.|Pass|
+|SY-06 Wall-hit disappearance remains visually consistent across clients|Projectile intersects an active wall while both clients observe|Both clients stop showing the projectile around the same contact moment; no client keeps visibly rendering it through the wall for long|Both clients stopped showing the projectile at nearly the same wall-contact moment with no prolonged one-side-through-wall visual.|Pass|
 
 ---
 
@@ -112,6 +117,8 @@ Verify whether the energy ball is generated, displayed, moved, and destroyed cor
 |BD-03 Fire while moving|Player walks or sidesteps while continuously casting|Projectile spawn and flight remain stable; not broken by movement interpolation|Movement during casting did not break projectile spawn or flight stability.|Pass|
 |BD-04 Fire in occluded environments|Player fires near desks / walls / another player's body|Projectile behavior remains valid; no obvious clipping, sticking, or wrong destruction|Occluded-environment firing remained valid with no obvious clipping, sticking, or wrong destroy behavior.|Pass|
 |BD-05 Fire after long runtime|Cast again after the system has been running for a long time|Projectile still spawns, flies, and destroys correctly; no accumulated drift or abnormality|Long-runtime retest still showed correct spawn, flight, and destruction behavior.|Pass|
+|BD-06 Fire directly into a nearby wall|Player fires toward a wall obstacle at very short range|Projectile still spawns correctly, then is destroyed on wall contact without tunneling through the wall|Very-short-range wall fire still spawned correctly and destroyed on contact without tunneling through the wall.|Pass|
+|BD-07 Repeated fire into walls under load|Players repeatedly fire into active walls while multiple projectiles are present|Projectile creation and wall-contact destruction remain stable; no lingering projectile visual remains stuck in the wall|Repeated wall-fire under load remained stable, and no projectile visual stayed stuck in the wall.|Pass|
 
 
 ---
