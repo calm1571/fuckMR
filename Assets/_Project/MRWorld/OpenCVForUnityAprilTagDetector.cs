@@ -1,4 +1,9 @@
-﻿using System;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Implements AprilTag detection through OpenCVForUnity.
+// Third-party adaptation: Yes (see SOURCE_ATTRIBUTION.md)
+
+using System;
 using System.Collections.Generic;
 using OpenCVForUnity.Calib3dModule;
 using OpenCVForUnity.CoreModule;
@@ -390,4 +395,6 @@ namespace Project.MRWorld
         }
     }
 }
+
+
 

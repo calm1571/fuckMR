@@ -1,4 +1,9 @@
-﻿using Project.Gameplay.Input;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Spawns and configures projectiles from player input.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using Project.Gameplay.Input;
 using UnityEngine;
 using UnityEngine.XR;
 using System;
@@ -248,4 +253,6 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+
+
 

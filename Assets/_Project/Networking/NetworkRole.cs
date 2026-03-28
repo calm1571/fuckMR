@@ -1,4 +1,9 @@
-﻿namespace Project.Networking
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Defines the runtime network roles.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+namespace Project.Networking
 {
         /// <summary>
     /// 联机角色枚举：Host、Client、Spectator。
@@ -11,4 +16,6 @@
         Spectator = 3
     }
 }
+
+
 

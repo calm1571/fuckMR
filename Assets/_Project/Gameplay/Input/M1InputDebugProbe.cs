@@ -1,4 +1,9 @@
-﻿using UnityEngine;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Provides debug visibility for gameplay input values.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using UnityEngine;
 
 namespace Project.Gameplay.Input
 {
@@ -44,4 +49,6 @@ namespace Project.Gameplay.Input
         }
     }
 }
+
+
 

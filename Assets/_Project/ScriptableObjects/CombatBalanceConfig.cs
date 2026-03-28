@@ -1,4 +1,9 @@
-﻿using UnityEngine;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Defines configurable combat balance parameters.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using UnityEngine;
 
 namespace Project.ScriptableObjects
 {
@@ -22,4 +27,6 @@ namespace Project.ScriptableObjects
         [Min(0.1f)] public float shieldCooldown = 3f;
     }
 }
+
+
 

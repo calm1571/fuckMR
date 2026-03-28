@@ -1,4 +1,9 @@
-﻿using System;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Builds and updates the 3D lobby user interface.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -385,4 +390,6 @@ namespace Project.Core
         }
     }
 }
+
+
 

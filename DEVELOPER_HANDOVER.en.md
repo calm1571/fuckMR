@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This document is for engineers who will continue development on FuckMR after the current milestone is complete. It focuses on architecture, responsibilities, extension points, and the places that are risky to modify.
+This document is for engineers who will continue development on the project after the current milestone is complete. It focuses on architecture, responsibilities, extension points, and the places that are risky to modify.
 
 ## 2. Project Positioning
 
@@ -324,3 +324,4 @@ Only after that should you attempt larger changes such as:
 - shared spatial anchor integration
 - calibration model replacement
 - transport redesign
+

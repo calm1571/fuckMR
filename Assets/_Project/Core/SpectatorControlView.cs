@@ -1,4 +1,9 @@
-﻿using System;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Builds the spectator control panel for support actions.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -301,4 +306,6 @@ namespace Project.Core
         }
     }
 }
+
+
 

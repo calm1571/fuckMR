@@ -1,4 +1,9 @@
-﻿using UnityEngine;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Maintains a visible controller laser for interaction and aiming.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using UnityEngine;
 
 namespace Project.Gameplay.Combat
 {
@@ -86,4 +91,6 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+
+
 

@@ -1,8 +1,8 @@
-﻿# FuckMR 项目说明
+﻿# 项目说明
 
 ## 1. 项目概述
 
-FuckMR 是一个基于 Unity 2022.3 LTS、PICO Unity Integration SDK 3.x 和 Android 平台的多人 MR 对战原型工程。项目目标是面向 PICO 4 Ultra 构建一个类似简化版 HADO 的混合现实对战体验，并在此基础上扩展 Host / Client / Spectator 三角色协同玩法。
+本项目是一个基于 Unity 2022.3 LTS、PICO Unity Integration SDK 3.x 和 Android 平台的多人 MR 对战原型工程。项目目标是面向 PICO 4 Ultra 构建一个类似简化版 HADO 的混合现实对战体验，并在此基础上扩展 Host / Client / Spectator 三角色协同玩法。
 
 项目核心特性：
 - 全程 Passthrough 透视
@@ -289,4 +289,5 @@ Assets/_Project/
 - 观众能力
 - 障碍墙系统
 - 墙血条 / 裂痕 / 碰墙销弹
+
 

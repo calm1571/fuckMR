@@ -1,4 +1,9 @@
-﻿using System;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Wraps spatial anchor creation, persistence, and synchronization workflows.
+// Third-party adaptation: Yes (see SOURCE_ATTRIBUTION.md)
+
+using System;
 using System.Threading.Tasks;
 using Unity.XR.PXR;
 using UnityEngine;
@@ -170,4 +175,6 @@ namespace Project.MRWorld
         }
     }
 }
+
+
 

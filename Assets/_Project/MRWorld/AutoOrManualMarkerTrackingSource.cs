@@ -1,4 +1,9 @@
-﻿namespace Project.MRWorld
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Switches between automatic and manual marker tracking sources.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+namespace Project.MRWorld
 {
     // Prefer auto AprilTag source; fallback to manual source when auto has no valid pose.
         /// <summary>
@@ -65,4 +70,6 @@
         }
     }
 }
+
+
 

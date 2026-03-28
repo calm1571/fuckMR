@@ -1,4 +1,9 @@
-﻿using System;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Runs the main runtime orchestration for gameplay, networking, calibration, and UI.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -3457,4 +3462,6 @@ namespace Project.Core
         }
     }
 }
+
+
 

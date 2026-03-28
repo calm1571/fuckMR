@@ -1,4 +1,9 @@
-﻿using UnityEngine;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Defines configurable spectator support parameters.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using UnityEngine;
 
 namespace Project.ScriptableObjects
 {
@@ -34,4 +39,6 @@ namespace Project.ScriptableObjects
         public Vector3 wallSize = new Vector3(1.6f, 1.35f, 0.12f);
     }
 }
+
+
 

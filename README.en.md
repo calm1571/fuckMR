@@ -1,8 +1,8 @@
-﻿# FuckMR Project Documentation
+﻿# Project Documentation
 
 ## 1. Overview
 
-FuckMR is a Unity 2022.3 LTS multiplayer MR prototype built on PICO Unity Integration SDK 3.x for Android devices. The project targets a simplified HADO-style mixed reality battle experience for PICO 4 Ultra, then extends it into a three-role runtime with Host, Client, and Spectator.
+This project is a Unity 2022.3 LTS multiplayer MR prototype built on PICO Unity Integration SDK 3.x for Android devices. The project targets a simplified HADO-style mixed reality battle experience for PICO 4 Ultra, then extends it into a three-role runtime with Host, Client, and Spectator.
 
 Core features:
 - Full-session Passthrough rendering
@@ -289,3 +289,4 @@ This version includes:
 - spectator features
 - wall obstacle system
 - wall HP bar / cracks / projectile-wall cleanup
+

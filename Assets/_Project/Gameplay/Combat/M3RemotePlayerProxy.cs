@@ -1,4 +1,9 @@
-﻿using Project.Networking;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Builds and updates remote player avatar visuals and markers.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using Project.Networking;
 using UnityEngine;
 
 namespace Project.Gameplay.Combat
@@ -395,4 +400,6 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+
+
 

@@ -1,4 +1,9 @@
-﻿using System;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Bridges Android-side AprilTag detection data into Unity.
+// Third-party adaptation: Yes (see SOURCE_ATTRIBUTION.md)
+
+using System;
 using UnityEngine;
 
 namespace Project.MRWorld
@@ -179,4 +184,6 @@ namespace Project.MRWorld
         }
     }
 }
+
+
 

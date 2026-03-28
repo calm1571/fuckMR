@@ -1,4 +1,9 @@
-﻿using UnityEngine;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Defines the interface for marker tracking sources.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using UnityEngine;
 
 namespace Project.MRWorld
 {
@@ -33,4 +38,6 @@ namespace Project.MRWorld
         string BuildDebugText();
     }
 }
+
+
 

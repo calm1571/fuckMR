@@ -1,4 +1,9 @@
-﻿using System.IO;
+﻿// Team-developed source file for the Enhancing Augmented Reality-Based Competitive Sports Experience, and Teaching How
+// Authoring team: Team-GRP01
+// Purpose: Adds required Android camera permission settings during build post-processing.
+// Third-party adaptation: No (see SOURCE_ATTRIBUTION.md)
+
+using System.IO;
 using System.Xml;
 using UnityEditor;
 using UnityEditor.Android;
@@ -66,4 +71,6 @@ namespace Project.Tools.Editor
         }
     }
 }
+
+
 
