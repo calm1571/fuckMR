@@ -13,7 +13,7 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 namespace Project.Core
 {
         /// <summary>
-    /// 通用 Lobby 世界空间 UI 视图。
+    /// Shared world-space lobby UI view.
     /// </summary>
     public sealed class LobbyView
     {
@@ -390,6 +390,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

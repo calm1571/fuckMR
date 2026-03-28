@@ -10,7 +10,7 @@ namespace Project.Networking
 {
     [Serializable]
         /// <summary>
-    /// 通用网络消息外壳。
+    /// Generic network message envelope.
     /// </summary>
     public sealed class LanMessage
     {
@@ -22,7 +22,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// 头手位姿同步数据。
+    /// Head and hand pose synchronization payload.
     /// </summary>
     public sealed class PosePayload
     {
@@ -33,7 +33,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// WorldRoot 同步数据。
+    /// WorldRoot synchronization payload.
     /// </summary>
     public sealed class WorldRootSyncPayload
     {
@@ -43,7 +43,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// 开火消息数据。
+    /// Shoot message payload.
     /// </summary>
     public sealed class ShootPayload
     {
@@ -56,7 +56,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// 护盾开关消息数据。
+    /// Shield activation payload.
     /// </summary>
     public sealed class ShieldPayload
     {
@@ -66,7 +66,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// HP 广播数据。
+    /// HP update broadcast payload.
     /// </summary>
     public sealed class HpUpdatePayload
     {
@@ -76,7 +76,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// 对局结果广播数据。
+    /// Match result broadcast payload.
     /// </summary>
     public sealed class MatchResultPayload
     {
@@ -85,7 +85,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// 共享空间锚 UUID 数据。
+    /// Shared spatial anchor UUID payload.
     /// </summary>
     public sealed class SharedAnchorPayload
     {
@@ -94,7 +94,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// 校准就绪状态数据。
+    /// Calibration readiness payload.
     /// </summary>
     public sealed class CalibrationReadyPayload
     {
@@ -106,7 +106,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// 分步远端对齐确认与偏移同步数据。
+    /// Step-based remote alignment confirmation and offset synchronization payload.
     /// </summary>
     public sealed class RemoteAlignmentPayload
     {
@@ -119,7 +119,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// 重赛确认数据。
+    /// Rematch confirmation payload.
     /// </summary>
     public sealed class RematchReadyPayload
     {
@@ -128,7 +128,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// Spectator 投票型交互数据。
+    /// Spectator vote interaction payload.
     /// </summary>
     public sealed class SpectatorVotePayload
     {
@@ -137,7 +137,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// 障碍墙生成请求数据。
+    /// Wall obstacle spawn request payload.
     /// </summary>
     public sealed class ObstacleSpawnRequestPayload
     {
@@ -148,7 +148,7 @@ namespace Project.Networking
 
     [Serializable]
         /// <summary>
-    /// 障碍墙权威状态数据。
+    /// Authoritative wall obstacle state payload.
     /// </summary>
     public sealed class ObstacleStatePayload
     {
@@ -169,7 +169,7 @@ namespace Project.Networking
     }
 
         /// <summary>
-    /// 所有网络消息类型常量。
+    /// Constants for all network message types.
     /// </summary>
     public static class LanMessageTypes
     {
@@ -192,6 +192,7 @@ namespace Project.Networking
         public const string ObstacleState = "OBSTACLE_STATE";
     }
 }
+
 
 
 

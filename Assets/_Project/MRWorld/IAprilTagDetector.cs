@@ -41,7 +41,7 @@ namespace Project.MRWorld
     }
 
         /// <summary>
-    /// AprilTag 检测器抽象接口。
+    /// AprilTag detector abstraction interface.
     /// </summary>
     public interface IAprilTagDetector
     {
@@ -57,6 +57,7 @@ namespace Project.MRWorld
             out AprilTagDetectionResult result);
     }
 }
+
 
 
 

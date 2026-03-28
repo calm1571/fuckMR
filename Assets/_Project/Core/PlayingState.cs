@@ -8,7 +8,7 @@ using System;
 namespace Project.Core
 {
         /// <summary>
-    /// 游戏进行状态。
+    /// Playing state.
     /// </summary>
     public sealed class PlayingState : IAppState
     {
@@ -38,6 +38,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

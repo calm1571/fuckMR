@@ -16,7 +16,7 @@ namespace Project.MRWorld
 {
     // Auto marker tracking using PICO readable camera frames + pluggable AprilTag detector.
         /// <summary>
-    /// 基于 AprilTag 检测结果输出 Marker 位姿。
+    /// Produces marker poses from AprilTag detection results.
     /// </summary>
     public sealed class AprilTagAutoTrackingSource : IMarkerTrackingSource
     {
@@ -349,6 +349,7 @@ namespace Project.MRWorld
         }
     }
 }
+
 
 
 

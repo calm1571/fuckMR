@@ -10,7 +10,7 @@ namespace Project.MRWorld
 {
     // Manual fallback for marker alignment: move controller tip to printed tag center and press X to lock.
         /// <summary>
-    /// 基于手动输入调整的 Marker 跟踪源。
+    /// Marker tracking source driven by manual input adjustments.
     /// </summary>
     public sealed class ManualMarkerTrackingSource : IMarkerTrackingSource
     {
@@ -149,6 +149,7 @@ namespace Project.MRWorld
         }
     }
 }
+
 
 
 

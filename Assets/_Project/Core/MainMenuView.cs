@@ -13,7 +13,7 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 namespace Project.Core
 {
         /// <summary>
-    /// 主菜单世界空间 UI。
+    /// Main menu world-space UI.
     /// </summary>
     public sealed class MainMenuView
     {
@@ -220,6 +220,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

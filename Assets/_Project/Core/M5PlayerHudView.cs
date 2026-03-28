@@ -10,7 +10,7 @@ using UnityEngine.UI;
 namespace Project.Core
 {
         /// <summary>
-    /// 玩家本地 HUD，显示血量与冷却。
+    /// Local player HUD showing HP and cooldowns.
     /// </summary>
     public sealed class M5PlayerHudView
     {
@@ -172,6 +172,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

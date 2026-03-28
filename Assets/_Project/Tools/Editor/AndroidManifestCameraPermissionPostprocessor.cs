@@ -12,7 +12,7 @@ using UnityEngine;
 namespace Project.Tools.Editor
 {
         /// <summary>
-    /// Android 构建后处理：补充相机权限相关配置。
+    /// Android build postprocessor that injects camera-permission-related configuration.
     /// </summary>
     public sealed class AndroidManifestCameraPermissionPostprocessor : IPostGenerateGradleAndroidProject
     {
@@ -71,6 +71,8 @@ namespace Project.Tools.Editor
         }
     }
 }
+
+
 
 
 

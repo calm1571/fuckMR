@@ -8,7 +8,7 @@ using System;
 namespace Project.Gameplay.Input
 {
         /// <summary>
-    /// 玩家输入抽象接口。
+    /// Player input abstraction interface.
     /// </summary>
     public interface IPlayerInputSource
     {
@@ -22,6 +22,7 @@ namespace Project.Gameplay.Input
         void Tick();
     }
 }
+
 
 
 

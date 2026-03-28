@@ -11,7 +11,7 @@ using UnityEngine;
 namespace Project.MRWorld
 {
         /// <summary>
-    /// PICO Spatial Anchor 同步能力封装。
+    /// Wrapper around PICO Spatial Anchor synchronization capabilities.
     /// </summary>
     public sealed class SpatialAnchorSyncService
     {
@@ -175,6 +175,7 @@ namespace Project.MRWorld
         }
     }
 }
+
 
 
 

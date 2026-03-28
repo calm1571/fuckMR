@@ -8,7 +8,7 @@ using System;
 namespace Project.Core
 {
         /// <summary>
-    /// 校准状态。
+    /// Calibration state.
     /// </summary>
     public sealed class CalibrationState : IAppState
     {
@@ -41,6 +41,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

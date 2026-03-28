@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Project.Core
 {
         /// <summary>
-    /// 应用启动状态。
+    /// Application boot state.
     /// </summary>
     public sealed class BootState : IAppState
     {
@@ -31,6 +31,7 @@ namespace Project.Core
         public void Tick() { }
     }
 }
+
 
 
 

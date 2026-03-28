@@ -303,7 +303,7 @@ Any non-trivial feature change should re-test:
 
 ## 15. Recommended Reading Order for New Developers
 
-1. `README.zh-CN.md` or `README.en.md`
+1. `README.md`
 2. `M0RuntimeBootstrap.cs`
 3. `M3NetworkCoordinator.cs`
 4. `UdpLanTransport.cs`
@@ -324,4 +324,5 @@ Only after that should you attempt larger changes such as:
 - shared spatial anchor integration
 - calibration model replacement
 - transport redesign
+
 

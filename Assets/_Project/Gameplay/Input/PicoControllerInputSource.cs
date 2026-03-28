@@ -14,7 +14,7 @@ using UnityEngine.InputSystem;
 namespace Project.Gameplay.Input
 {
         /// <summary>
-    /// 基于 PICO 控制器的输入实现。
+    /// Input implementation backed by PICO controllers.
     /// </summary>
     public sealed class PicoControllerInputSource : IPlayerInputSource
     {
@@ -170,6 +170,7 @@ namespace Project.Gameplay.Input
 #endif
     }
 }
+
 
 
 

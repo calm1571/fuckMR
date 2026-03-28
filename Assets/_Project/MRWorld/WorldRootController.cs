@@ -9,7 +9,7 @@ using UnityEngine.XR;
 namespace Project.MRWorld
 {
         /// <summary>
-    /// 管理可移动的 WorldRoot 根节点。
+    /// Manages the movable WorldRoot transform.
     /// </summary>
     public sealed class WorldRootController
     {
@@ -147,6 +147,7 @@ namespace Project.MRWorld
         }
     }
 }
+
 
 
 

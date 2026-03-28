@@ -13,12 +13,12 @@ using UnityEngine;
 namespace Project.Networking
 {
         /// <summary>
-    /// 基于 UDP 的局域网传输层，负责握手、收包、发包和 Host 中继。
+    /// UDP LAN transport layer that owns handshakes, receive/send operations, and Host relay.
     /// </summary>
     public sealed class UdpLanTransport
     {
                 /// <summary>
-        /// Host 端记录的已连接远端节点信息。
+        /// Connected remote endpoint record maintained by the Host.
         /// </summary>
         private sealed class HostPeerInfo
         {
@@ -408,7 +408,7 @@ namespace Project.Networking
 
         private void HandleHandshake(LanMessage message, IPEndPoint remoteEndpoint)
         {
-            // 握手阶段只处理 HELLO / HELLO_ACK，并在 Host 端记录已连入的角色端点。
+            // During handshake, only HELLO and HELLO_ACK are processed and the Host records connected role endpoints.
             if (_role == NetworkRole.Host && message.type == LanMessageTypes.Hello)
             {
                 var key = remoteEndpoint.ToString();
@@ -435,7 +435,7 @@ namespace Project.Networking
 
         private void RelayIfNeeded(LanMessage message, IPEndPoint sourceEndpoint)
         {
-            // Host 只中继需要跨端传播的消息，避免所有消息无差别广播。
+            // The Host only relays messages that must cross peers, avoiding blind broadcast of every message.
             if (_role != NetworkRole.Host)
             {
                 return;
@@ -556,6 +556,7 @@ namespace Project.Networking
         }
     }
 }
+
 
 
 

@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Project.Gameplay.Combat
 {
         /// <summary>
-    /// 护盾可视化组件。
+    /// Shield visual component.
     /// </summary>
     public sealed class M5ShieldVisual : MonoBehaviour
     {
@@ -115,6 +115,7 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+
 
 
 

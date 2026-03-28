@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Project.Gameplay.Combat
 {
         /// <summary>
-    /// 运行时障碍墙实体，包含模型、血条、裂痕和碰撞。
+    /// Runtime wall obstacle entity containing visuals, an HP bar, cracks, and colliders.
     /// </summary>
     public sealed class WallObstacleRuntime
     {
@@ -42,7 +42,7 @@ namespace Project.Gameplay.Combat
 
         public WallObstacleRuntime(string name, int obstacleId, Transform parent, Vector3 size, bool isPreview)
         {
-            // 一次性构建墙本体、血条、裂痕和碰撞体；预览模式只保留视觉，不参与碰撞和血条显示。
+            // Build the wall body, HP bar, crack visuals, and colliders in one pass; preview mode keeps visuals only and skips collisions and HP bar rendering.
             ObstacleId = obstacleId;
             _isPreview = isPreview;
             _size = new Vector3(
@@ -136,7 +136,7 @@ namespace Project.Gameplay.Combat
 
         public void SetHp(float currentHp, float maxHp)
         {
-            // 血量变化同时驱动红色血条长度和墙面裂痕强度。
+            // HP changes drive both the red HP bar length and the wall crack intensity.
             _maxHp = Mathf.Max(1f, maxHp);
             _currentHp = Mathf.Clamp(currentHp, 0f, _maxHp);
             if (_isPreview)
@@ -419,7 +419,7 @@ namespace Project.Gameplay.Combat
 
         private void UpdateCrackVisuals(float damage01)
         {
-            // 用受损比例驱动主裂痕、分叉裂纹和角落崩边的显示强度。
+            // Use the damage ratio to drive the visibility of main cracks, branch cracks, and chipped corners.
             if (_crackRenderers == null || _crackRenderers.Length == 0)
             {
                 return;
@@ -546,6 +546,7 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+
 
 
 

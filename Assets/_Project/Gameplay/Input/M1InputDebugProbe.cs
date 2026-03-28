@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Project.Gameplay.Input
 {
         /// <summary>
-    /// 输入调试探针，用于快速检查控制器输入状态。
+    /// Input debug probe for quickly checking controller input state.
     /// </summary>
     public sealed class M1InputDebugProbe
     {
@@ -49,6 +49,7 @@ namespace Project.Gameplay.Input
         }
     }
 }
+
 
 
 

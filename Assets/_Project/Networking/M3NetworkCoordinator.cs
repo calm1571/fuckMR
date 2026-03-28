@@ -12,7 +12,7 @@ using UnityEngine;
 namespace Project.Networking
 {
         /// <summary>
-    /// 网络高层协调器，负责在运行时收发消息并向上层暴露事件。
+    /// High-level network coordinator that sends and receives runtime messages and exposes typed events upward.
     /// </summary>
     public sealed class M3NetworkCoordinator
     {
@@ -417,7 +417,7 @@ namespace Project.Networking
 
         public void NotifyRemoteAlignment(Vector3 position, Quaternion rotation, bool confirmed, string stage)
         {
-            // 分步校准确认和偏移同步统一走这条消息，三种角色都允许发送。
+            // Step confirmation and alignment offset synchronization share this message path, and all three roles may send it.
             if (Role == NetworkRole.None || !_transport.IsConnected)
             {
                 return;
@@ -587,7 +587,7 @@ namespace Project.Networking
 
         private void OnMessageReceived(LanMessage message)
         {
-            // 所有网络消息都在这里做一次解析，再转成上层可消费的挂起事件。
+            // Parse all incoming network messages here, then convert them into deferred events for upper layers.
             if (message == null || string.IsNullOrEmpty(message.type))
             {
                 return;
@@ -814,6 +814,7 @@ namespace Project.Networking
         }
     }
 }
+
 
 
 

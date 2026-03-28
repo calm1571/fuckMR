@@ -8,7 +8,7 @@ using System;
 namespace Project.Core
 {
         /// <summary>
-    /// Host Lobby 状态。
+    /// Host lobby state.
     /// </summary>
     public sealed class LobbyHostState : IAppState
     {
@@ -40,6 +40,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

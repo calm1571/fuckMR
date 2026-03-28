@@ -8,7 +8,7 @@ using System;
 namespace Project.Core
 {
         /// <summary>
-    /// 结果页状态。
+    /// Result screen state.
     /// </summary>
     public sealed class ResultState : IAppState
     {
@@ -41,6 +41,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

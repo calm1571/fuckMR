@@ -19,7 +19,7 @@ namespace Project.MRWorld
 {
     // AprilTag detector based on OpenCVForUnity (Objdetect+Aruco APIs).
         /// <summary>
-    /// 基于 OpenCVForUnity 的 AprilTag 检测实现。
+    /// AprilTag detection implementation based on OpenCVForUnity.
     /// </summary>
     public sealed class OpenCVForUnityAprilTagDetector : IAprilTagDetector
     {
@@ -395,6 +395,7 @@ namespace Project.MRWorld
         }
     }
 }
+
 
 
 

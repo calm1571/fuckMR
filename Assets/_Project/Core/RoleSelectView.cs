@@ -13,7 +13,7 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 namespace Project.Core
 {
         /// <summary>
-    /// 角色选择界面。
+    /// Role selection view.
     /// </summary>
     public sealed class RoleSelectView
     {
@@ -204,6 +204,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

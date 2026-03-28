@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Project.Gameplay.Combat
 {
         /// <summary>
-    /// 子弹移动体，负责生命周期与本地墙碰撞销毁。
+    /// Projectile runtime body that owns lifetime and local wall-impact cleanup.
     /// </summary>
     public sealed class M1Projectile : MonoBehaviour
     {
@@ -61,7 +61,7 @@ namespace Project.Gameplay.Combat
 
         private void OnCollisionEnter(Collision collision)
         {
-            // 视觉子弹打到墙时立即在本地销毁，避免出现穿墙显示。
+            // Destroy the visual projectile locally on wall impact to avoid pass-through visuals.
             if (collision == null)
             {
                 return;
@@ -107,6 +107,7 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+
 
 
 

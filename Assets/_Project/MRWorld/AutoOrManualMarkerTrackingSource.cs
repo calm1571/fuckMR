@@ -7,7 +7,7 @@ namespace Project.MRWorld
 {
     // Prefer auto AprilTag source; fallback to manual source when auto has no valid pose.
         /// <summary>
-    /// 自动识别与手动识别之间的组合 Marker 数据源。
+    /// Composite marker source that combines automatic and manual tracking.
     /// </summary>
     public sealed class AutoOrManualMarkerTrackingSource : IMarkerTrackingSource
     {
@@ -70,6 +70,7 @@ namespace Project.MRWorld
         }
     }
 }
+
 
 
 

@@ -8,12 +8,13 @@ using UnityEngine;
 namespace Project.Gameplay.Combat
 {
         /// <summary>
-    /// 用于标记墙体碰撞器，供子弹视觉体识别。
+    /// Marker component used to identify wall colliders for projectile visuals.
     /// </summary>
     public sealed class WallObstacleColliderTag : MonoBehaviour
     {
     }
 }
+
 
 
 

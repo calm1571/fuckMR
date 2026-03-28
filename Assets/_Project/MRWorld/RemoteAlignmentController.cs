@@ -9,7 +9,7 @@ using UnityEngine.XR;
 namespace Project.MRWorld
 {
         /// <summary>
-    /// 远端视觉体本地微调控制器。
+    /// Local fine-alignment controller for remote visuals.
     /// </summary>
     public sealed class RemoteAlignmentController
     {
@@ -170,6 +170,7 @@ namespace Project.MRWorld
         }
     }
 }
+
 
 
 

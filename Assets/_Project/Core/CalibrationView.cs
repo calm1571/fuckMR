@@ -13,7 +13,7 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 namespace Project.Core
 {
         /// <summary>
-    /// 校准阶段使用的世界空间 UI。
+    /// World-space UI used during calibration.
     /// </summary>
     public sealed class CalibrationView
     {
@@ -316,6 +316,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

@@ -6,7 +6,7 @@
 namespace Project.Core
 {
         /// <summary>
-    /// 应用状态接口。
+    /// Application state interface.
     /// </summary>
     public interface IAppState
     {
@@ -16,6 +16,7 @@ namespace Project.Core
         void Tick();
     }
 }
+
 
 
 

@@ -6,7 +6,7 @@
 namespace Project.Core
 {
         /// <summary>
-    /// 角色选择状态。
+    /// Role selection state.
     /// </summary>
     public sealed class RoleSelectState : IAppState
     {
@@ -35,6 +35,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

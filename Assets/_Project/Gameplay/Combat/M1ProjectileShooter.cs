@@ -11,7 +11,7 @@ using System;
 namespace Project.Gameplay.Combat
 {
         /// <summary>
-    /// 子弹发射器，负责本地开火与远端子弹视觉生成。
+    /// Projectile shooter responsible for local firing and remote projectile visuals.
     /// </summary>
     public sealed class M1ProjectileShooter : MonoBehaviour
     {
@@ -253,6 +253,7 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+
 
 
 

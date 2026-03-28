@@ -8,7 +8,7 @@ using System;
 namespace Project.Core
 {
         /// <summary>
-    /// Spectator Lobby 状态。
+    /// Spectator lobby state.
     /// </summary>
     public sealed class LobbySpectatorState : IAppState
     {
@@ -40,6 +40,8 @@ namespace Project.Core
         }
     }
 }
+
+
 
 
 

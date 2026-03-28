@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Project.Core
 {
         /// <summary>
-    /// Spectator 本地音频播放组件。
+    /// Spectator local audio playback component.
     /// </summary>
     public sealed class SpectatorAudioPlayer
     {
@@ -41,6 +41,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

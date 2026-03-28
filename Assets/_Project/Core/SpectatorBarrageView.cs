@@ -11,12 +11,12 @@ using UnityEngine.UI;
 namespace Project.Core
 {
         /// <summary>
-    /// Spectator 本地弹幕视图。
+    /// Spectator local barrage view.
     /// </summary>
     public sealed class SpectatorBarrageView
     {
                 /// <summary>
-        /// 单条弹幕实例记录。
+        /// Runtime record for a single barrage entry.
         /// </summary>
         private sealed class Entry
         {
@@ -179,6 +179,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

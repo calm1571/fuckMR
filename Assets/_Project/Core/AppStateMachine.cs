@@ -9,7 +9,7 @@ using System.Collections.Generic;
 namespace Project.Core
 {
         /// <summary>
-    /// 简单应用状态机，负责状态切换和 Tick 派发。
+    /// Minimal application state machine that owns transitions and Tick dispatch.
     /// </summary>
     public sealed class AppStateMachine
     {
@@ -46,6 +46,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

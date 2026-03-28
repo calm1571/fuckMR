@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Project.Gameplay.Combat
 {
         /// <summary>
-    /// 始终可见的控制器激光指示器。
+    /// Always-visible controller laser indicator.
     /// </summary>
     public sealed class M1AlwaysVisibleControllerLaser : MonoBehaviour
     {
@@ -91,6 +91,7 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+
 
 
 

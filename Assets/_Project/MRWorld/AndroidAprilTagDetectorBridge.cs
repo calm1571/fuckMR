@@ -18,7 +18,7 @@ namespace Project.MRWorld
     // Returned JSON example:
     //   {"ok":true,"id":0,"tx":0.1,"ty":0.2,"tz":1.3,"qx":0,"qy":0,"qz":0,"qw":1,"confidence":0.92}
         /// <summary>
-    /// Android 原生 AprilTag 检测桥接实现。
+    /// Android native AprilTag detector bridge implementation.
     /// </summary>
     public sealed class AndroidAprilTagDetectorBridge : IAprilTagDetector
     {
@@ -167,7 +167,7 @@ namespace Project.MRWorld
 
         [Serializable]
                 /// <summary>
-        /// 原生桥返回的单个检测结果 DTO。
+        /// DTO representing a single detection returned by the native bridge.
         /// </summary>
         private sealed class DetectionDto
         {
@@ -184,6 +184,7 @@ namespace Project.MRWorld
         }
     }
 }
+
 
 
 

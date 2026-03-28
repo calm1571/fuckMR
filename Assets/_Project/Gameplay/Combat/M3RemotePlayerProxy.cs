@@ -9,7 +9,7 @@ using UnityEngine;
 namespace Project.Gameplay.Combat
 {
         /// <summary>
-    /// 远端玩家视觉代理，包含头、手、标识与血条。
+    /// Remote player visual proxy containing head, hands, markers, and the HP bar.
     /// </summary>
     public sealed class M3RemotePlayerProxy : MonoBehaviour
     {
@@ -400,6 +400,7 @@ namespace Project.Gameplay.Combat
         }
     }
 }
+
 
 
 

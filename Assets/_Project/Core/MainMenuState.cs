@@ -6,7 +6,7 @@
 namespace Project.Core
 {
         /// <summary>
-    /// 主菜单状态。
+    /// Main menu state.
     /// </summary>
     public sealed class MainMenuState : IAppState
     {
@@ -35,6 +35,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

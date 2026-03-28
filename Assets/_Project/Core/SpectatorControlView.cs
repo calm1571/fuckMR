@@ -13,7 +13,7 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 namespace Project.Core
 {
         /// <summary>
-    /// Spectator 运行时控制面板。
+    /// Spectator runtime control panel.
     /// </summary>
     public sealed class SpectatorControlView
     {
@@ -306,6 +306,7 @@ namespace Project.Core
         }
     }
 }
+
 
 
 

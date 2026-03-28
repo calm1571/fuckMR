@@ -12,7 +12,7 @@ namespace Project.UI
     [RequireComponent(typeof(Collider))]
     [RequireComponent(typeof(XRSimpleInteractable))]
         /// <summary>
-    /// 运行时生成的世界空间 3D 按钮。
+    /// Runtime-generated world-space 3D button.
     /// </summary>
     public sealed class WorldButton3D : MonoBehaviour
     {
@@ -130,6 +130,7 @@ namespace Project.UI
         }
     }
 }
+
 
 
 

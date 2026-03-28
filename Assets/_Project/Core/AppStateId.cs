@@ -6,7 +6,7 @@
 namespace Project.Core
 {
         /// <summary>
-    /// 应用主流程状态枚举。
+    /// Application flow state identifiers.
     /// </summary>
     public enum AppStateId
     {
@@ -22,6 +22,7 @@ namespace Project.Core
         BackToMenu = 9
     }
 }
+
 
 
 

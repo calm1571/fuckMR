@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Project.MRWorld
 {
         /// <summary>
-    /// Marker 跟踪源模式枚举。
+    /// Marker tracking source mode enumeration.
     /// </summary>
     public enum MarkerTrackingSourceMode
     {
@@ -27,7 +27,7 @@ namespace Project.MRWorld
     }
 
         /// <summary>
-    /// Marker 跟踪源抽象接口。
+    /// Marker tracking source abstraction interface.
     /// </summary>
     public interface IMarkerTrackingSource
     {
@@ -38,6 +38,7 @@ namespace Project.MRWorld
         string BuildDebugText();
     }
 }
+
 
 
 
